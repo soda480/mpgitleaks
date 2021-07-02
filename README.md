@@ -1,7 +1,8 @@
 ## check-gitleaks
 A Python script that wraps the gitleaks tool to enable scanning of multiple repositories in parallel
 
-### `check-gitleaks` Usage
+### Usage
+```bash
 usage: check-gitleaks [-h] [--file FILENAME]
 
 A Python script that wraps the gitleaks tool to enable scanning of multiple repositories in parallel
@@ -9,6 +10,7 @@ A Python script that wraps the gitleaks tool to enable scanning of multiple repo
 optional arguments:
   -h, --help       show this help message and exit
   --file FILENAME  file containing repositories to scan
+```
 
 Clone the repository and ensure the lastest verison of Docker is installed on your system.
 

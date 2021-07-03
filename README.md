@@ -3,13 +3,14 @@ A Python script that wraps the [gitleaks](https://github.com/zricethezav/gitleak
 
 ## Usage
 ```bash
-usage: mpgitleaks [-h] [--file FILENAME]
+usage: mpgitleaks [-h] [--file FILENAME] [--progress]
 
 A Python script that wraps the gitleaks tool to enable scanning of multiple repositories in parallel
 
 optional arguments:
   -h, --help       show this help message and exit
   --file FILENAME  file containing repositories to scan
+  --progress       display progress bar for each process
 ```
 
 ## Example

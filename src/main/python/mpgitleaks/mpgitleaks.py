@@ -26,6 +26,11 @@ def get_parser():
         default='repos.txt',
         required=False,
         help='file containing repositories to scan')
+    parser.add_argument(
+        '--progress',
+        dest='progress',
+        action='store_true',
+        help='display progress bar for each process')
     return parser
 
 
@@ -96,7 +101,7 @@ def scan_repo(process_data, *args):
 
     client = get_client()
     branches = client.get(f'/repos/{repo_owner}/{repo_name}/branches', _get='all', _attributes=['name'])
-    logger.debug(f'processing total of {len(branches)} branches for repo {repo_name}')
+    logger.debug(f'processing total of {len(branches) * 2 + 1} commands for repo {repo_name}')
 
     dirs = create_directories()
 
@@ -141,7 +146,7 @@ def get_process_data(repos):
     return process_data
 
 
-def execute_scans(repos):
+def execute_scans(repos, progress):
     """ return process data for multiprocessing
     """
     process_data = get_process_data(repos)
@@ -150,12 +155,13 @@ def execute_scans(repos):
         'id_regex': r'^processing repo (?P<value>.*)$',
         'id_justify': True,
         'id_width': max_length,
-        # 'progress_bar': {
-        #     'total': r'^processing total of (?P<value>\d+) branches$',
-        #     'count_regex': r'^processing branch (?P<value>.*)$',
-        #     'progress_message': 'scanning of all branches complete'
-        # }
     }
+    if progress:
+        config['progress_bar'] = {
+            'total': r'^processing total of (?P<value>\d+) commands for repo .*$',
+            'count_regex': r'^executing command: (?P<value>.*)$',
+            'progress_message': 'scanning of all branches complete'
+        }
     mp4ansi = MP4ansi(function=scan_repo, process_data=process_data, config=config)
     mp4ansi.execute(raise_if_error=True)
     return get_results(process_data)
@@ -180,7 +186,7 @@ def main():
     configure_logging()
     get_client()
     repos = get_file_repos(args.filename)
-    results = execute_scans(repos)
+    results = execute_scans(repos, args.progress)
     display_results(results)
 
 

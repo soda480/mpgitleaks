@@ -10,6 +10,8 @@ from mp4ansi import MP4ansi
 
 logger = logging.getLogger(__name__)
 
+HOME = '/opt/mpgitleaks'
+
 
 def get_parser():
     """ return argument parser
@@ -31,7 +33,7 @@ def configure_logging():
     """
     rootLogger = logging.getLogger()
     rootLogger.setLevel(logging.DEBUG)
-    file_handler = logging.FileHandler('check-mpleaks.log')
+    file_handler = logging.FileHandler('mpgitleaks.log')
     file_formatter = logging.Formatter("%(asctime)s %(processName)s [%(funcName)s] %(levelname)s %(message)s")
     file_handler.setFormatter(file_formatter)
     rootLogger.addHandler(file_handler)
@@ -80,20 +82,24 @@ def scan_repo(process_data, *args):
     repo = process_data['repo']
     owner = process_data['owner']
     logger.debug(f'processing repo {repo}')
-    working_dir = f"{os.getenv('PWD')}/scans"
-    execute_command(f'mkdir -p {working_dir}', shell=True)
-    execute_command(f'rm -rf {working_dir}/{repo}', shell=True)
-    execute_command(f'git clone {address}', cwd=working_dir)
-    working_dir = f'{working_dir}/{repo}'
+
+    scans_dir = f"{os.getenv('PWD', HOME)}/scans"
+    clones_dir = f'{scans_dir}/clones'
+    reports_dir = f'{scans_dir}/reports'
+    clone_dir = f'{clones_dir}/{repo}'
+    execute_command(f'mkdir -p {scans_dir}', shell=True)
+    execute_command(f'mkdir -p {clones_dir}', shell=True)
+    execute_command(f'mkdir -p {reports_dir}', shell=True)
+    execute_command(f'rm -rf {clone_dir}', shell=True)
+    execute_command(f'git clone {address}', cwd=clones_dir)
     branches = client.get(f'/repos/{owner}/{repo}/branches', _get='all', _attributes=['name'])
     logger.debug(f'processing total of {len(branches)} branches')
     for branch in branches:
         branch = branch['name']
         logger.debug(f'processing branch {branch}')
-        execute_command(f'/usr/bin/git checkout -b {branch} origin/{branch}', cwd=working_dir)
-        exit_code = execute_command(f'/usr/bin/gitleaks --path=. --branch={branch} --report=/output/{repo}-{branch}.json --threads=10', cwd=working_dir)
+        execute_command(f'/usr/bin/git checkout -b {branch} origin/{branch}', cwd=clone_dir)
+        exit_code = execute_command(f'/usr/bin/gitleaks --path=. --branch={branch} --report={reports_dir}/{repo}-{branch}.json --threads=10', cwd=clone_dir)
         result[f'{owner}/{repo}:{branch}'] = False if exit_code == 0 else True
-        # sleep(1)
     return result
 
 
@@ -130,11 +136,11 @@ def execute_scans(repos):
         'id_regex': r'^processing repo (?P<value>.*)$',
         'id_justify': True,
         'id_width': max_length,
-        'progress_bar': {
-            'total': r'^processing total of (?P<value>\d+) branches$',
-            'count_regex': r'^processing branch (?P<value>.*)$',
-            'progress_message': 'scanning of all branches complete'
-        }
+        # 'progress_bar': {
+        #     'total': r'^processing total of (?P<value>\d+) branches$',
+        #     'count_regex': r'^processing branch (?P<value>.*)$',
+        #     'progress_message': 'scanning of all branches complete'
+        # }
     }
     mp4ansi = MP4ansi(function=scan_repo, process_data=process_data, config=config)
     mp4ansi.execute(raise_if_error=True)

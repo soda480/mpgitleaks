@@ -3,7 +3,8 @@ import os
 import logging
 import subprocess
 import argparse
-# from time import sleep
+import shutil
+from pathlib import Path
 
 from github3api import GitHubAPI
 from mp4ansi import MP4ansi
@@ -50,10 +51,7 @@ def get_client():
 def execute_command(command, **kwargs):
     """ execute command
     """
-    if kwargs.get('shell') and kwargs['shell']:
-        command_split = command
-    else:
-        command_split = command.split(' ')
+    command_split = command.split(' ')
     logger.debug(f'executing command: {command}')
     process = subprocess.run(command_split, capture_output=True, text=True, **kwargs)
     logger.debug(f'returncode: {process.returncode}')
@@ -64,42 +62,59 @@ def execute_command(command, **kwargs):
     return process.returncode
 
 
-def get_repos(filename):
+def get_file_repos(filename):
     """ return list of repos read from filename
     """
     if not os.access(filename, os.R_OK):
         raise ValueError(f"the default repos file '{filename}' cannot be read")
     with open(filename) as infile:
-        return infile.readlines()
+        return [line.strip() for line in infile.readlines()]
+
+
+def create_directories():
+    """ create required directories
+    """
+    scans_dir = f"{os.getenv('PWD', HOME)}/scans"
+    dirs = {
+        'scans': scans_dir,
+        'clones': f'{scans_dir}/clones',
+        'reports': f'{scans_dir}/reports'
+    }
+    for key, value in dirs.items():
+        Path(value).mkdir(parents=True, exist_ok=True)
+    return dirs
 
 
 def scan_repo(process_data, *args):
-    """ scan repo
+    """ execute gitleaks scan on all branches of repo pulled from queue
     """
-    result = {}
-    client = get_client()
-    address = process_data['address']
-    repo = process_data['repo']
-    owner = process_data['owner']
-    logger.debug(f'processing repo {repo}')
+    repo_address = process_data['address']
+    repo_owner = process_data['owner']
+    repo_name = process_data['name']
 
-    scans_dir = f"{os.getenv('PWD', HOME)}/scans"
-    clones_dir = f'{scans_dir}/clones'
-    reports_dir = f'{scans_dir}/reports'
-    clone_dir = f'{clones_dir}/{repo}'
-    execute_command(f'mkdir -p {scans_dir}', shell=True)
-    execute_command(f'mkdir -p {clones_dir}', shell=True)
-    execute_command(f'mkdir -p {reports_dir}', shell=True)
-    execute_command(f'rm -rf {clone_dir}', shell=True)
-    execute_command(f'git clone {address}', cwd=clones_dir)
-    branches = client.get(f'/repos/{owner}/{repo}/branches', _get='all', _attributes=['name'])
-    logger.debug(f'processing total of {len(branches)} branches')
+    logger.debug(f'processing repo {repo_name}')
+
+    client = get_client()
+    branches = client.get(f'/repos/{repo_owner}/{repo_name}/branches', _get='all', _attributes=['name'])
+    logger.debug(f'processing total of {len(branches)} branches for repo {repo_name}')
+
+    dirs = create_directories()
+
+    clone_dir = f"{dirs['clones']}/{repo_name}"
+    shutil.rmtree(clone_dir, ignore_errors=True)
+    execute_command(f'git clone {repo_address}', cwd=dirs['clones'])
+
+    result = {}
     for branch in branches:
-        branch = branch['name']
-        logger.debug(f'processing branch {branch}')
-        execute_command(f'/usr/bin/git checkout -b {branch} origin/{branch}', cwd=clone_dir)
-        exit_code = execute_command(f'/usr/bin/gitleaks --path=. --branch={branch} --report={reports_dir}/{repo}-{branch}.json --threads=10', cwd=clone_dir)
-        result[f'{owner}/{repo}:{branch}'] = False if exit_code == 0 else True
+        branch_name = branch['name']
+        logger.debug(f'processing branch {branch_name} for repo {repo_name}')
+        execute_command(f'git checkout -b {branch_name} origin/{branch_name}', cwd=clone_dir)
+        report = f"{dirs['reports']}/{repo_name}-{branch_name}.json"
+        exit_code = execute_command(f'gitleaks --path=. --branch={branch_name} --report={report} --threads=10', cwd=clone_dir)
+        result[f'{repo_owner}/{repo_name}:{branch_name}'] = False if exit_code == 0 else report
+        logger.debug(f'processing of branch {branch_name} for repo {repo_name} is complete')
+
+    logger.debug(f'processing of repo {repo_name} complete')
     return result
 
 
@@ -117,11 +132,10 @@ def get_process_data(repos):
     """
     process_data = []
     for address in repos:
-        address = address.strip()
         item = {
             'address': address,
             'owner': address.split(':')[1].split('/')[0],
-            'repo': address.split('/')[-1].replace('.git', '')
+            'name': address.split('/')[-1].replace('.git', '')
         }
         process_data.append(item)
     return process_data
@@ -131,7 +145,7 @@ def execute_scans(repos):
     """ return process data for multiprocessing
     """
     process_data = get_process_data(repos)
-    max_length = max(len(item['repo']) for item in process_data)
+    max_length = max(len(item['name']) for item in process_data)
     config = {
         'id_regex': r'^processing repo (?P<value>.*)$',
         'id_justify': True,
@@ -165,7 +179,7 @@ def main():
     args = get_parser().parse_args()
     configure_logging()
     get_client()
-    repos = get_repos(args.filename)
+    repos = get_file_repos(args.filename)
     results = execute_scans(repos)
     display_results(results)
 

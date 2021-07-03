@@ -3,13 +3,14 @@ A Python script that wraps the [gitleaks](https://github.com/zricethezav/gitleak
 
 ## Usage
 ```bash
-usage: mpgitleaks [-h] [--file FILENAME] [--exclude EXCLUDE] [--include INCLUDE] [--progress]
+usage: mpgitleaks [-h] [--file FILENAME] [--user] [--exclude EXCLUDE] [--include INCLUDE] [--progress]
 
 A Python script that wraps the gitleaks tool to enable scanning of multiple repositories in parallel
 
 optional arguments:
   -h, --help         show this help message and exit
-  --file FILENAME    file containing repositories to scan
+  --file FILENAME    file containing repositories to process
+  --user             process repos for the authenticated user
   --exclude EXCLUDE  a regex to match name of repos to exclude from processing
   --include INCLUDE  a regex to match name of repos to include in processing
   --progress         display progress bar for each process
@@ -54,7 +55,7 @@ mpgitleaks:latest \
 ### Examples
 Examples showing various command options.
 
-Read repos from `my-repos.txt` file include repos that begin with `pybuilder` or `mp` but exclude `mpcurses` repo
+Get repos from `my-repos.txt` file include repos that begin with `pybuilder` or `mp` but exclude `mpcurses` repo
 
 ```bash
 mpgitleaks --file 'my-repos.txt' --include 'soda480/pybuilder-|soda480/mp' --exclude 'soda480/mpcurses' --progress

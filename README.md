@@ -54,12 +54,16 @@ mpgitleaks:latest \
 ### Examples
 Examples showing various command options.
 
-Read repos from `my-repos.txt` file include repos that begin with `pybuilder` or `mp` but exclude `mpcurses` and `mpmq`
+Read repos from `my-repos.txt` file include repos that begin with `pybuilder` or `mp` but exclude `mpcurses` repo
 
 ```bash
-mpgitleaks --file 'my-repos.txt' --include 'pybuilder-|mp' --exclude 'mpcurses|mpmq' --progress
+mpgitleaks --file 'my-repos.txt' --include 'soda480/pybuilder-|soda480/mp' --exclude 'soda480/mpcurses' --progress
 ```
 
+Get repos for authenticated user and process only those that start with `soda480/`
+```bash
+mpgitleaks --user --include 'soda480/'
+```
 
 ## Development
 

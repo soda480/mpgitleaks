@@ -26,7 +26,12 @@ def get_parser():
         type=str,
         default='repos.txt',
         required=False,
-        help='file containing repositories to scan')
+        help='file containing repositories to process')
+    parser.add_argument(
+        '--user',
+        dest='user',
+        action='store_true',
+        help='process repos for the authenticated user')
     parser.add_argument(
         '--exclude',
         dest='exclude',
@@ -82,15 +87,16 @@ def execute_command(command, **kwargs):
     return process.returncode
 
 
-def get_repo_data(addresses):
+def get_repo_data(ssh_urls):
     """ return list of repo data from addresses
     """
     repos = []
-    for address in addresses:
+    for ssh_url in ssh_urls:
+        owner = ssh_url.split(':')[1].split('/')[0]
+        name = ssh_url.split('/')[-1].replace('.git', '')
         item = {
-            'address': address,
-            'owner': address.split(':')[1].split('/')[0],
-            'name': address.split('/')[-1].replace('.git', '')
+            'ssh_url': ssh_url,
+            'full_name': f'{owner}/{name}'
         }
         repos.append(item)
     return repos
@@ -102,8 +108,8 @@ def get_file_repos(filename):
     if not os.access(filename, os.R_OK):
         raise ValueError(f"the default repos file '{filename}' cannot be read")
     with open(filename) as infile:
-        addresses = [line.strip() for line in infile.readlines()]
-    repos = get_repo_data(addresses)
+        ssh_urls = [line.strip() for line in infile.readlines()]
+    repos = get_repo_data(ssh_urls)
     return repos
 
 
@@ -124,33 +130,33 @@ def create_directories():
 def scan_repo(process_data, *args):
     """ execute gitleaks scan on all branches of repo pulled from queue
     """
-    repo_address = process_data['address']
-    repo_owner = process_data['owner']
-    repo_name = process_data['name']
+    repo_ssh_url = process_data['ssh_url']
+    repo_full_name = process_data['full_name']
+    repo_name = repo_full_name.replace('/', '-')
 
-    logger.debug(f'processing repo {repo_name}')
+    logger.debug(f'processing repo {repo_full_name}')
 
     client = get_client()
-    branches = client.get(f'/repos/{repo_owner}/{repo_name}/branches', _get='all', _attributes=['name'])
-    logger.debug(f'processing total of {len(branches) * 2 + 1} commands for repo {repo_name}')
+    branches = client.get(f'/repos/{repo_full_name}/branches', _get='all', _attributes=['name'])
+    logger.debug(f'processing total of {len(branches) * 2 + 1} commands for repo {repo_full_name}')
 
     dirs = create_directories()
 
     clone_dir = f"{dirs['clones']}/{repo_name}"
     shutil.rmtree(clone_dir, ignore_errors=True)
-    execute_command(f'git clone {repo_address}', cwd=dirs['clones'])
+    execute_command(f'git clone {repo_ssh_url} {repo_name}', cwd=dirs['clones'])
 
     result = {}
     for branch in branches:
         branch_name = branch['name']
-        logger.debug(f'processing branch {branch_name} for repo {repo_name}')
+        logger.debug(f'processing branch {branch_name} for repo {repo_full_name}')
         execute_command(f'git checkout -b {branch_name} origin/{branch_name}', cwd=clone_dir)
         report = f"{dirs['reports']}/{repo_name}-{branch_name}.json"
         exit_code = execute_command(f'gitleaks --path=. --branch={branch_name} --report={report} --threads=10', cwd=clone_dir)
-        result[f'{repo_owner}/{repo_name}:{branch_name}'] = False if exit_code == 0 else report
-        logger.debug(f'processing of branch {branch_name} for repo {repo_name} is complete')
+        result[f'{repo_full_name}:{branch_name}'] = False if exit_code == 0 else report
+        logger.debug(f'processing of branch {branch_name} for repo {repo_full_name} is complete')
 
-    logger.debug(f'processing of repo {repo_name} complete')
+    logger.debug(f'processing of repo {repo_full_name} complete')
     return result
 
 
@@ -163,25 +169,13 @@ def get_results(process_data):
     return results
 
 
-def get_process_data(repos):
-    """ return list of process data
-    """
-    process_data = []
-    for address in repos:
-        item = {
-            'address': address,
-            'owner': address.split(':')[1].split('/')[0],
-            'name': address.split('/')[-1].replace('.git', '')
-        }
-        process_data.append(item)
-    return process_data
-
-
 def execute_scans(repos, progress):
     """ return process data for multiprocessing
     """
+    if not repos:
+        raise ValueError('no repos to process')
     process_data = repos
-    max_length = max(len(item['name']) for item in process_data)
+    max_length = max(len(item['full_name']) for item in process_data)
     config = {
         'id_regex': r'^processing repo (?P<value>.*)$',
         'id_justify': True,
@@ -206,7 +200,7 @@ def match_repos(repos, include, exclude):
     match_exclude = False
     matched_repos = []
     for repo in repos:
-        repo_name = repo['name']
+        repo_name = repo['full_name']
         if include:
             match_include = re.match(include, repo_name)
         if exclude:
@@ -228,13 +222,32 @@ def display_results(results):
         print('All branches in all repos passed gitleaks scan')
 
 
+def get_user_repos(client):
+    """ return repos for authenticated user
+    """
+    user = client.get('/user')['login']
+    logger.debug(f'getting all repos for the authenticated user {user}')
+    repos = client.get('/user/repos', _get='all', _attributes=['full_name', 'ssh_url'])
+    return repos
+
+
+def get_repos(client, filename, user):
+    """ get repos for filename, user or org
+    """
+    if user:
+        repos = get_user_repos(client)
+    else:
+        repos = get_file_repos(filename)
+    return repos
+
+
 def main():
     """ main function
     """
     args = get_parser().parse_args()
     configure_logging()
-    get_client()
-    repos = get_file_repos(args.filename)
+    client = get_client()
+    repos = get_repos(client, args.filename, args.user)
     matched_repos = match_repos(repos, args.include, args.exclude)
     results = execute_scans(matched_repos, args.progress)
     display_results(results)

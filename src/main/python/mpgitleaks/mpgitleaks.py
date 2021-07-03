@@ -6,6 +6,8 @@ import subprocess
 import argparse
 import shutil
 from pathlib import Path
+from multiprocessing import Queue
+from queue import Empty
 
 from github3api import GitHubAPI
 from mp4ansi import MP4ansi
@@ -13,6 +15,7 @@ from mp4ansi import MP4ansi
 logger = logging.getLogger(__name__)
 
 HOME = '/opt/mpgitleaks'
+MAX_PROCESSES = 15
 
 
 def get_parser():
@@ -32,6 +35,13 @@ def get_parser():
         dest='user',
         action='store_true',
         help='process repos for the authenticated user')
+    parser.add_argument(
+        '--org',
+        dest='org',
+        type=str,
+        default=None,
+        required=False,
+        help='process repos for the specified GitHub organization')
     parser.add_argument(
         '--exclude',
         dest='exclude',
@@ -63,6 +73,13 @@ def configure_logging():
     file_formatter = logging.Formatter("%(asctime)s %(processName)s [%(funcName)s] %(levelname)s %(message)s")
     file_handler.setFormatter(file_formatter)
     rootLogger.addHandler(file_handler)
+
+
+def echo(message):
+    """ print and log message
+    """
+    logger.debug(message)
+    print(message)
 
 
 def get_client():
@@ -151,12 +168,59 @@ def scan_repo(process_data, *args):
         branch_name = branch['name']
         logger.debug(f'processing branch {branch_name} for repo {repo_full_name}')
         execute_command(f'git checkout -b {branch_name} origin/{branch_name}', cwd=clone_dir)
-        report = f"{dirs['reports']}/{repo_name}-{branch_name}.json"
+        safe_branch_name = branch_name.replace('/', '-')
+        report = f"{dirs['reports']}/{repo_name}-{safe_branch_name}.json"
         exit_code = execute_command(f'gitleaks --path=. --branch={branch_name} --report={report} --threads=10', cwd=clone_dir)
         result[f'{repo_full_name}:{branch_name}'] = False if exit_code == 0 else report
         logger.debug(f'processing of branch {branch_name} for repo {repo_full_name} is complete')
 
     logger.debug(f'processing of repo {repo_full_name} complete')
+    return result
+
+
+def scan_repo_queue(process_data, *args):
+    """ execute gitleaks scan on all branches of repo pulled from queue
+    """
+    repo_queue = process_data['repo_queue']
+    dirs = create_directories()
+    client = get_client()
+    zfill = len(str(repo_queue.qsize()))
+    result = {}
+    repo_count = 0
+    while True:
+        try:
+            repo = repo_queue.get(timeout=10)
+
+            repo_ssh_url = repo['ssh_url']
+            repo_full_name = repo['full_name']
+            repo_name = repo_full_name.replace('/', '-')
+
+            repo_count += 1
+            logger.debug(f'processing repo {repo_full_name}')
+
+            branches = client.get(f'/repos/{repo_full_name}/branches', _get='all', _attributes=['name'])
+            logger.debug(f'processing total of {len(branches) * 2 + 1} commands for repo {repo_full_name}')
+
+            clone_dir = f"{dirs['clones']}/{repo_name}"
+            shutil.rmtree(clone_dir, ignore_errors=True)
+            execute_command(f'git clone {repo_ssh_url} {repo_name}', cwd=dirs['clones'])
+
+            for branch in branches:
+                branch_name = branch['name']
+                logger.debug(f'processing branch {branch_name} for repo {repo_full_name}')
+                execute_command(f'git checkout -b {branch_name} origin/{branch_name}', cwd=clone_dir)
+                safe_branch_name = branch_name.replace('/', '-')
+                report = f"{dirs['reports']}/{repo_name}-{safe_branch_name}.json"
+                exit_code = execute_command(f'gitleaks --path=. --branch={branch_name} --report={report} --threads=10', cwd=clone_dir)
+                result[f'{repo_full_name}:{branch_name}'] = False if exit_code == 0 else report
+                logger.debug(f'processing of branch {branch_name} for repo {repo_full_name} is complete')
+
+            logger.debug(f'processing of repo {repo_full_name} complete')
+
+        except Empty:
+            logger.debug('repo queue is empty')
+            break
+    logger.debug(f'processing of repos complete - scanned {str(repo_count).zfill(zfill)} repos')
     return result
 
 
@@ -169,25 +233,51 @@ def get_results(process_data):
     return results
 
 
+def get_process_data_queue(repos):
+    """ get process data for queue processing
+    """
+    repo_queue = Queue()
+    for repo in repos:
+        repo_queue.put(repo)
+    process_data = []
+    for process in range(MAX_PROCESSES):
+        item = {
+            'repo_queue': repo_queue
+        }
+        process_data.append(item)
+    return process_data
+
+
 def execute_scans(repos, progress):
     """ return process data for multiprocessing
     """
     if not repos:
         raise ValueError('no repos to process')
-    process_data = repos
-    max_length = max(len(item['full_name']) for item in process_data)
-    config = {
-        'id_regex': r'^processing repo (?P<value>.*)$',
-        'id_justify': True,
-        'id_width': max_length,
-    }
+
+    if len(repos) <= MAX_PROCESSES:
+        function = scan_repo
+        process_data = repos
+        max_length = max(len(item['full_name']) for item in repos)
+        config = {
+            'id_regex': r'^processing repo (?P<value>.*)$',
+            'id_justify': True,
+            'id_width': max_length,
+        }
+    else:
+        config = {
+            'text_regex': r'processing|executing'
+        }
+        function = scan_repo_queue
+        process_data = get_process_data_queue(repos)
+
     if progress:
         config['progress_bar'] = {
             'total': r'^processing total of (?P<value>\d+) commands for repo .*$',
             'count_regex': r'^executing command: (?P<value>.*)$',
-            'progress_message': 'scanning of all branches complete'
+            # 'progress_message': 'scanning of all branches complete'
         }
-    mp4ansi = MP4ansi(function=scan_repo, process_data=process_data, config=config)
+
+    mp4ansi = MP4ansi(function=function, process_data=process_data, config=config)
     mp4ansi.execute(raise_if_error=True)
     return get_results(process_data)
 
@@ -207,6 +297,7 @@ def match_repos(repos, include, exclude):
             match_exclude = re.match(exclude, repo_name)
         if match_include and not match_exclude:
             matched_repos.append(repo)
+    echo(f'A total of {len(matched_repos)} repos will be processed per the specified inclusion and exclusion criteria')
     return matched_repos
 
 
@@ -214,28 +305,38 @@ def display_results(results):
     """ print results
     """
     if any(results.values()):
-        print('The following repos failed gitleaks scan:')
-        for item in results:
-            if results[item]:
-                print(item)
+        echo('The following repos failed gitleaks scan:')
+        for scan, report in results.items():
+            if report:
+                echo(f"{scan}: {report}")
     else:
-        print('All branches in all repos passed gitleaks scan')
+        echo('All branches in all repos passed gitleaks scan')
 
 
 def get_user_repos(client):
     """ return repos for authenticated user
     """
     user = client.get('/user')['login']
-    logger.debug(f'getting all repos for the authenticated user {user}')
+    echo(f'Getting all repos for the authenticated user {user}... this may take awhile')
     repos = client.get('/user/repos', _get='all', _attributes=['full_name', 'ssh_url'])
     return repos
 
 
-def get_repos(client, filename, user):
+def get_org_repos(client, org):
+    """ return repos for organization
+    """
+    echo(f'Getting all repos for org {org}... this may take awhile')
+    repos = client.get(f'/orgs/{org}/repos', _get='all', _attributes=['full_name', 'ssh_url'])
+    return repos
+
+
+def get_repos(client, filename, user, org):
     """ get repos for filename, user or org
     """
     if user:
         repos = get_user_repos(client)
+    elif org:
+        repos = get_org_repos(client, org)
     else:
         repos = get_file_repos(filename)
     return repos
@@ -247,7 +348,7 @@ def main():
     args = get_parser().parse_args()
     configure_logging()
     client = get_client()
-    repos = get_repos(client, args.filename, args.user)
+    repos = get_repos(client, args.filename, args.user, args.org)
     matched_repos = match_repos(repos, args.include, args.exclude)
     results = execute_scans(matched_repos, args.progress)
     display_results(results)

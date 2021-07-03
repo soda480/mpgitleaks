@@ -3,7 +3,7 @@ A Python script that wraps the [gitleaks](https://github.com/zricethezav/gitleak
 
 ## Usage
 ```bash
-usage: mpgitleaks [-h] [--file FILENAME] [--user] [--exclude EXCLUDE] [--include INCLUDE] [--progress]
+usage: mpgitleaks [-h] [--file FILENAME] [--user] [--org ORG] [--exclude EXCLUDE] [--include INCLUDE] [--progress]
 
 A Python script that wraps the gitleaks tool to enable scanning of multiple repositories in parallel
 
@@ -11,6 +11,7 @@ optional arguments:
   -h, --help         show this help message and exit
   --file FILENAME    file containing repositories to process
   --user             process repos for the authenticated user
+  --org ORG          process repos for the specified GitHub organization
   --exclude EXCLUDE  a regex to match name of repos to exclude from processing
   --include INCLUDE  a regex to match name of repos to include in processing
   --progress         display progress bar for each process
@@ -55,15 +56,20 @@ mpgitleaks:latest \
 ### Examples
 Examples showing various command options.
 
-Get repos from `my-repos.txt` file include repos that begin with `pybuilder` or `mp` but exclude `mpcurses` repo
+Get repos from `my-repos.txt` file include repos that begin with `pybuilder`but exclude `mpcurses` repo
 
 ```bash
-mpgitleaks --file 'my-repos.txt' --include 'soda480/pybuilder-|soda480/mp' --exclude 'soda480/mpcurses' --progress
+mpgitleaks --file 'my-repos.txt' --include 'soda480/pybuilder' --exclude 'soda480/mpcurses'
 ```
 
-Get repos for authenticated user and process only those that start with `soda480/`
+Get repos for authenticated user and process only those that start with `soda480/` and display progress bar
 ```bash
-mpgitleaks --user --include 'soda480/'
+mpgitleaks --user --include 'soda480/' --progress
+```
+
+Get repos for an organization and exclude from processing repos that end with `-go`
+```bash
+mpgitleaks --org 'myorg' --exclude '.*-go'
 ```
 
 ## Development

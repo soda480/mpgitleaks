@@ -3,17 +3,19 @@ A Python script that wraps the [gitleaks](https://github.com/zricethezav/gitleak
 
 ## Usage
 ```bash
-usage: mpgitleaks [-h] [--file FILENAME] [--progress]
+usage: mpgitleaks [-h] [--file FILENAME] [--exclude EXCLUDE] [--include INCLUDE] [--progress]
 
 A Python script that wraps the gitleaks tool to enable scanning of multiple repositories in parallel
 
 optional arguments:
-  -h, --help       show this help message and exit
-  --file FILENAME  file containing repositories to scan
-  --progress       display progress bar for each process
+  -h, --help         show this help message and exit
+  --file FILENAME    file containing repositories to scan
+  --exclude EXCLUDE  a regex to match name of repos to exclude from processing
+  --include INCLUDE  a regex to match name of repos to include in processing
+  --progress         display progress bar for each process
 ```
 
-## Example
+## Execution
 
 Clone the repository and ensure the lastest verison of Docker is installed on your system.
 
@@ -48,6 +50,16 @@ docker container run \
 mpgitleaks:latest \
 [OPTIONS]
 ```
+
+### Examples
+Examples showing various command options.
+
+Read repos from `my-repos.txt` file include repos that begin with `pybuilder` or `mp` but exclude `mpcurses` and `mpmq`
+
+```bash
+mpgitleaks --file 'my-repos.txt' --include 'pybuilder-|mp' --exclude 'mpcurses|mpmq' --progress
+```
+
 
 ## Development
 

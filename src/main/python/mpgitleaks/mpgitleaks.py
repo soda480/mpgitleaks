@@ -1,5 +1,6 @@
 
 import os
+import re
 import logging
 import subprocess
 import argparse
@@ -26,6 +27,20 @@ def get_parser():
         default='repos.txt',
         required=False,
         help='file containing repositories to scan')
+    parser.add_argument(
+        '--exclude',
+        dest='exclude',
+        type=str,
+        default='',
+        required=False,
+        help='a regex to match name of repos to exclude from processing')
+    parser.add_argument(
+        '--include',
+        dest='include',
+        type=str,
+        default='',
+        required=False,
+        help='a regex to match name of repos to include in processing')
     parser.add_argument(
         '--progress',
         dest='progress',
@@ -67,13 +82,29 @@ def execute_command(command, **kwargs):
     return process.returncode
 
 
+def get_repo_data(addresses):
+    """ return list of repo data from addresses
+    """
+    repos = []
+    for address in addresses:
+        item = {
+            'address': address,
+            'owner': address.split(':')[1].split('/')[0],
+            'name': address.split('/')[-1].replace('.git', '')
+        }
+        repos.append(item)
+    return repos
+
+
 def get_file_repos(filename):
     """ return list of repos read from filename
     """
     if not os.access(filename, os.R_OK):
         raise ValueError(f"the default repos file '{filename}' cannot be read")
     with open(filename) as infile:
-        return [line.strip() for line in infile.readlines()]
+        addresses = [line.strip() for line in infile.readlines()]
+    repos = get_repo_data(addresses)
+    return repos
 
 
 def create_directories():
@@ -149,7 +180,7 @@ def get_process_data(repos):
 def execute_scans(repos, progress):
     """ return process data for multiprocessing
     """
-    process_data = get_process_data(repos)
+    process_data = repos
     max_length = max(len(item['name']) for item in process_data)
     config = {
         'id_regex': r'^processing repo (?P<value>.*)$',
@@ -167,16 +198,34 @@ def execute_scans(repos, progress):
     return get_results(process_data)
 
 
+def match_repos(repos, include, exclude):
+    """ match repos using include and exclude regex
+    """
+    logger.debug(f'matching repos using include {include} and exclude {exclude}')
+    match_include = True
+    match_exclude = False
+    matched_repos = []
+    for repo in repos:
+        repo_name = repo['name']
+        if include:
+            match_include = re.match(include, repo_name)
+        if exclude:
+            match_exclude = re.match(exclude, repo_name)
+        if match_include and not match_exclude:
+            matched_repos.append(repo)
+    return matched_repos
+
+
 def display_results(results):
     """ print results
     """
     if any(results.values()):
-        print('the following repos failed gitleaks scan:')
+        print('The following repos failed gitleaks scan:')
         for item in results:
             if results[item]:
                 print(item)
     else:
-        print('all branches in all repos passed gitleaks scan')
+        print('All branches in all repos passed gitleaks scan')
 
 
 def main():
@@ -186,7 +235,8 @@ def main():
     configure_logging()
     get_client()
     repos = get_file_repos(args.filename)
-    results = execute_scans(repos, args.progress)
+    matched_repos = match_repos(repos, args.include, args.exclude)
+    results = execute_scans(matched_repos, args.progress)
     display_results(results)
 
 

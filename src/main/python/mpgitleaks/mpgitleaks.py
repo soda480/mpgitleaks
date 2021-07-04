@@ -67,12 +67,12 @@ def get_parser():
 def configure_logging():
     """ configure logging
     """
-    rootLogger = logging.getLogger()
-    rootLogger.setLevel(logging.DEBUG)
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
     file_handler = logging.FileHandler('mpgitleaks.log')
     file_formatter = logging.Formatter("%(asctime)s %(processName)s [%(funcName)s] %(levelname)s %(message)s")
     file_handler.setFormatter(file_formatter)
-    rootLogger.addHandler(file_handler)
+    root_logger.addHandler(file_handler)
 
 
 def echo(message):

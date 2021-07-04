@@ -1,4 +1,3 @@
-  
 name: build
 on:
   push:
@@ -9,17 +8,13 @@ on:
       - master
 jobs:
   build:
-    runs-on: ubuntu-18.04
-    container: python:3.6-slim
-
+    runs-on: ubuntu-20.04
+    container: python:3.9-slim
     steps:
     - uses: actions/checkout@v2
-
     - name: Install pybuilder
       run: pip install pybuilder
-
     - name: Install dependencies
       run: pyb install_dependencies --no-venvs
-
     - name: Execute build
       run: pyb -X --no-venvs

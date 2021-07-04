@@ -1,16 +1,18 @@
-
+    
+#   -*- coding: utf-8 -*-
 import os
 import re
-import logging
-import subprocess
-import argparse
+import sys
 import shutil
+import logging
+import argparse
+import subprocess
+from queue import Empty
 from pathlib import Path
 from multiprocessing import Queue
-from queue import Empty
 
-from github3api import GitHubAPI
 from mp4ansi import MP4ansi
+from github3api import GitHubAPI
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +31,7 @@ def get_parser():
         type=str,
         default='repos.txt',
         required=False,
-        help='file containing repositories to process')
+        help='process repos contained in the specified file')
     parser.add_argument(
         '--user',
         dest='user',
@@ -41,7 +43,7 @@ def get_parser():
         type=str,
         default=None,
         required=False,
-        help='process repos for the specified GitHub organization')
+        help='process repos for the specified organization')
     parser.add_argument(
         '--exclude',
         dest='exclude',
@@ -61,15 +63,23 @@ def get_parser():
         dest='progress',
         action='store_true',
         help='display progress bar for each process')
+    parser.add_argument(
+        '--log',
+        dest='log',
+        action='store_true',
+        help='log messages to a log file')
     return parser
 
 
-def configure_logging():
+def configure_logging(create):
     """ configure logging
     """
+    if not create:
+        return
+    name = os.path.basename(sys.argv[0])
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
-    file_handler = logging.FileHandler('mpgitleaks.log')
+    file_handler = logging.FileHandler(f'{name}.log')
     file_formatter = logging.Formatter("%(asctime)s %(processName)s [%(funcName)s] %(levelname)s %(message)s")
     file_handler.setFormatter(file_formatter)
     root_logger.addHandler(file_handler)
@@ -83,7 +93,7 @@ def echo(message):
 
 
 def get_client():
-    """ return instance of GitHubAPI RESTclient
+    """ return instance of GitHubAPI client
     """
     if not os.getenv('GH_TOKEN_PSW'):
         raise ValueError('GH_TOKEN_PSW environment variable must be set to token')
@@ -106,7 +116,7 @@ def execute_command(command, **kwargs):
 
 
 def get_repo_data(ssh_urls):
-    """ return list of repo data from addresses
+    """ return list of repo data from ssh_urls
     """
     repos = []
     for ssh_url in ssh_urls:
@@ -121,7 +131,7 @@ def get_repo_data(ssh_urls):
 
 
 def create_directories():
-    """ create required directories
+    """ create and return required directories
     """
     scans_dir = f"{os.getenv('PWD', HOME)}/scans"
     dirs = {
@@ -135,7 +145,7 @@ def create_directories():
 
 
 def scan_repo(process_data, *args):
-    """ execute gitleaks scan on all branches of repo pulled from queue
+    """ execute gitleaks scan on all branches of repo
     """
     repo_ssh_url = process_data['ssh_url']
     repo_full_name = process_data['full_name']
@@ -215,7 +225,7 @@ def scan_repo_queue(process_data, *args):
 
 
 def get_results(process_data):
-    """ return results
+    """ return results from process data
     """
     results = {}
     for process in process_data:
@@ -239,7 +249,7 @@ def get_process_data_queue(repos):
 
 
 def execute_scans(repos, progress):
-    """ return process data for multiprocessing
+    """ execute scans for repoos using multiprocessing
     """
     if not repos:
         raise ValueError('no repos to process')
@@ -272,14 +282,15 @@ def execute_scans(repos, progress):
 
 
 def get_file_repos(filename):
-    """ return list of repos read from filename
+    """ return repos read from filename
     """
-    echo(f'Getting repos from file {filename}...')
+    echo(f"Getting repos from file '{filename}' ...")
     if not os.access(filename, os.R_OK):
         raise ValueError(f"the default repos file '{filename}' cannot be read")
     with open(filename) as infile:
         ssh_urls = [line.strip() for line in infile.readlines()]
     repos = get_repo_data(ssh_urls)
+    echo(f"A total of {len(repos)} reops were read in from '{filename}'")
     return repos
 
 
@@ -287,16 +298,18 @@ def get_user_repos(client):
     """ return repos for authenticated user
     """
     user = client.get('/user')['login']
-    echo(f'Getting repos for the authenticated user {user}... this may take awhile')
+    echo(f"Getting repos for the authenticated user '{user}' ...")
     repos = client.get('/user/repos', _get='all', _attributes=['full_name', 'ssh_url'])
+    echo(f"A total of {len(repos)} reops were retrieved from authenticated user '{user}'")
     return repos
 
 
 def get_org_repos(client, org):
     """ return repos for organization
     """
-    echo(f'Getting repos for org {org}... this may take awhile')
+    echo(f"Getting repos for org: '{org}' ...")
     repos = client.get(f'/orgs/{org}/repos', _get='all', _attributes=['full_name', 'ssh_url'])
+    echo(f"A total of {len(repos)} reops were retrieved from organization '{org}'")
     return repos
 
 
@@ -328,14 +341,13 @@ def match_criteria(name, include, exclude):
 def match_repos(repos, include, exclude):
     """ match repos using include and exclude regex
     """
-    logger.debug(f'matching repos using include {include} and exclude {exclude}')
+    logger.debug(f'matching repos using include {include} and exclude {exclude} criteria')
     matched_repos = []
     for repo in repos:
-        repo_name = repo['full_name']
-        match_include, match_exclude = match_criteria(repo_name, include, exclude)
+        match_include, match_exclude = match_criteria(repo['full_name'], include, exclude)
         if match_include and not match_exclude:
             matched_repos.append(repo)
-    echo(f'A total of {len(matched_repos)} repos will be processed per the specified inclusion and exclusion criteria')
+    echo(f"A total of {len(matched_repos)} repos will be processed per the inclusion/exclusion criteria")
     return matched_repos
 
 
@@ -343,25 +355,35 @@ def display_results(results):
     """ print results
     """
     if any(results.values()):
-        echo('The following repos failed gitleaks scan:')
+        echo('The following repos failed the gitleaks scan:')
         for scan, report in results.items():
             if report:
                 home_dir = os.getenv('PWD', HOME)
                 relative = report.replace(home_dir, '.')
                 echo(f"{scan}:\n   {relative}")
     else:
-        echo('All branches in all repos passed gitleaks scan')
+        echo('All branches in all repos passed the gitleaks scan!')
 
 
 def main():
     """ main function
     """
     args = get_parser().parse_args()
-    configure_logging()
-    repos = get_repos(args.filename, args.user, args.org)
-    matched_repos = match_repos(repos, args.include, args.exclude)
-    results = execute_scans(matched_repos, args.progress)
-    display_results(results)
+    configure_logging(args.log)
+
+    try:
+        repos = get_repos(args.filename, args.user, args.org)
+        if args.include or args.exclude:
+            matched_repos = match_repos(repos, args.include, args.exclude)
+        else:
+            matched_repos = repos
+        results = execute_scans(matched_repos, args.progress)
+        display_results(results)
+
+    except Exception as exception:
+        logger.error(exception)
+        print(f'Error: {exception}')
+        sys.exit(-1)
 
 
 if __name__ == '__main__':

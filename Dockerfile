@@ -1,4 +1,5 @@
 FROM python:3.9-slim AS build
+LABEL maintainer="Emilio Reyes soda480@gmail.com"
 ENV PYTHONDONTWRITEBYTECODE 1
 COPY --from=zricethezav/gitleaks:latest /usr/bin/gitleaks /usr/bin/gitleaks
 WORKDIR /mpgitleaks

@@ -6,58 +6,50 @@
 
 A Python script that wraps the [gitleaks](https://github.com/zricethezav/gitleaks) tool to enable scanning of multiple repositories in parallel. 
 
-This wrapping script was written for a few reasons:
+The main factors for writing this script were:
 * implement workaround for `gitleaks` intermittent failures when cloning very large repositories
 * implement ability to scan multiple repostiories in parallel
-* implement ability to scan all repositories for the authenticated user or a specified organization
+* implement ability to scan all repositories for the authenticated user or specified organization
 
-Notes:
-* ssh urls must be supplied when using `--file` option
-* the script uses ssh to clone the repos thus you must have an ssh key configured on the GitHub instance
-* the Docker container must run with your .ssh folder bind mounted
+**Notes**:
+* the script uses ssh to clone the repos
+  * you must have an ssh key configured on the target GitHub instance
+  * the Docker container must run with your .ssh folder bind mounted
+  * if using `--file` then ssh urls must be supplied in the file
 * the maximum number of background processes (workers) that will be started is `35`
-* the script will start one worker per repository unless the total number of repos exceeds the maximum number of workers
-* if total number of repos exceeds maximum workers, the repos will be added to a thread-safe queue and processed by the workers
-* the repos will be cloned to the `./scans/clones` folder in the working directory
-* the reports will be written to the `./scans/reports/` folder in the working directory
+  * if the number of repos to process is less than the maximum number of workers
+    * the script will start one worker per repository
+  * if the number of repos to process is greater than the maximum number of workers
+    * the repos will be added to a thread-safe queue and processed by all the workers
+* the Docker container must run with a bind mount to the working directory in order to access logs/reports
+  * the repos will be cloned to the `./scans/clones` folder in the working directory
+  * the reports will be written to the `./scans/reports/` folder in the working directory
 
 
 ## Usage
 ```bash
-usage: mpgitleaks [-h] [--file FILENAME] [--user] [--org ORG] [--exclude EXCLUDE] [--include INCLUDE] [--progress]
+usage: mpgitleaks [-h] [--file FILENAME] [--user] [--org ORG] [--exclude EXCLUDE] [--include INCLUDE] [--progress] [--log]
 
 A Python script that wraps the gitleaks tool to enable scanning of multiple repositories in parallel
 
 optional arguments:
   -h, --help         show this help message and exit
-  --file FILENAME    file containing repositories to process - default file is repos.txt
+  --file FILENAME    process repos contained in the specified file
   --user             process repos for the authenticated user
-  --org ORG          process repos for the specified GitHub organization
+  --org ORG          process repos for the specified organization
   --exclude EXCLUDE  a regex to match name of repos to exclude from processing
   --include INCLUDE  a regex to match name of repos to include in processing
   --progress         display progress bar for each process
+  --log              log messages to a log file
 ```
 
 ## Execution
 
-Clone the repository and ensure the lastest verison of Docker is installed on your system.
-
-Build the Docker image:
-```bash
-docker image build \
---build-arg http_proxy \
---build-arg https_proxy \
--t \
-mpgitleaks:latest .
-```
-
-Set required environment variables:
+Set the required environment variables:
 ```bash
 export GH_BASE_URL=api.github.com
 export GH_TOKEN_PSW=--your-token--
 ```
-
-Create a file `repos.txt` in $PWD that contains the ssh address url of all repos to scan.
 
 Execute the Docker container:
 ```bash
@@ -70,8 +62,8 @@ docker container run \
 -e GH_TOKEN_PSW \
 -v $PWD:/opt/mpgitleaks \
 -v $HOME/.ssh:/root/.ssh \
-mpgitleaks:latest \
-[OPTIONS]
+soda480/mpgitleaks:latest \
+[MPGITLEAKS OPTIONS]
 ```
 
 ### Examples
@@ -93,6 +85,8 @@ mpgitleaks --org 'myorg' --include '.*-go'
 ```
 
 ## Development
+
+Clone the repository and ensure the latest version of Docker is installed on your development server.
 
 Build the Docker image:
 ```bash

@@ -1,5 +1,25 @@
 # mpgitleaks
-A Python script that wraps the [gitleaks](https://github.com/zricethezav/gitleaks) tool to enable scanning of multiple repositories in parallel
+[![complexity](https://img.shields.io/badge/complexity-Simple:%205-brightgreen)](https://radon.readthedocs.io/en/latest/api.html#module-radon.complexity)
+[![vulnerabilities](https://img.shields.io/badge/vulnerabilities-None-brightgreen)](https://pypi.org/project/bandit/)
+[![python](https://img.shields.io/badge/python-3.9-teal)](https://www.python.org/downloads/)
+
+A Python script that wraps the [gitleaks](https://github.com/zricethezav/gitleaks) tool to enable scanning of multiple repositories in parallel. 
+
+This wrapping script was written for a few reasons:
+* implement workaround for `gitleaks` intermittent failures when cloning very large repositories
+* implement ability to scan multiple repostiories in parallel
+* implement ability to scan all repositories for the authenticated user or a specified organization
+
+Notes:
+* ssh urls must be supplied when using `--file` option
+* the script uses ssh to clone the repos thus you must have an ssh key configured on the GitHub instance
+* the Docker container must run with your .ssh folder bind mounted
+* the maximum number of background processes (workers) that will be started is `35`
+* the script will start one worker per repository unless the total number of repos exceeds the maximum number of workers
+* if total number of repos exceeds maximum workers, the repos will be added to a thread-safe queue and processed by the workers
+* the repos will be cloned to the `./scans/clones` folder in the working directory
+* the reports will be written to the `./scans/reports/` folder in the working directory
+
 
 ## Usage
 ```bash
@@ -9,7 +29,7 @@ A Python script that wraps the gitleaks tool to enable scanning of multiple repo
 
 optional arguments:
   -h, --help         show this help message and exit
-  --file FILENAME    file containing repositories to process
+  --file FILENAME    file containing repositories to process - default file is repos.txt
   --user             process repos for the authenticated user
   --org ORG          process repos for the specified GitHub organization
   --exclude EXCLUDE  a regex to match name of repos to exclude from processing
@@ -54,22 +74,21 @@ mpgitleaks:latest \
 ```
 
 ### Examples
-Examples showing various command options.
 
-Get repos from `my-repos.txt` file include repos that begin with `pybuilder`but exclude `mpcurses` repo
-
+Get repos from a file named `repos.txt` but exclude the specified repos and display progress bar:
 ```bash
-mpgitleaks --file 'my-repos.txt' --include 'soda480/pybuilder' --exclude 'soda480/mpcurses'
+mpgitleaks --file 'repos.txt' --exclude 'soda480/mplogp' --progress
+```
+![example](https://raw.githubusercontent.com/soda480/mpgitleaks/master/docs/images/example1.gif)
+
+Get all repos for the authenticated user but exclude the specified repos:
+```bash
+mpgitleaks --user --exclude 'intel|edgexfoundry|soda480/openhack'
 ```
 
-Get repos for authenticated user and process only those that start with `soda480/` and display progress bar
+Get alls repos for the specified organization and include only the specified repos:
 ```bash
-mpgitleaks --user --include 'soda480/' --progress
-```
-
-Get repos for an organization and exclude from processing repos that end with `-go`
-```bash
-mpgitleaks --org 'myorg' --exclude '.*-go'
+mpgitleaks --org 'myorg' --include '.*-go'
 ```
 
 ## Development

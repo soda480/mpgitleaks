@@ -15,7 +15,7 @@ from mp4ansi import MP4ansi
 logger = logging.getLogger(__name__)
 
 HOME = '/opt/mpgitleaks'
-MAX_PROCESSES = 15
+MAX_PROCESSES = 35
 
 
 def get_parser():
@@ -96,6 +96,7 @@ def execute_command(command, **kwargs):
     command_split = command.split(' ')
     logger.debug(f'executing command: {command}')
     process = subprocess.run(command_split, capture_output=True, text=True, **kwargs)
+    logger.debug(f'executed command: {command}')
     logger.debug(f'returncode: {process.returncode}')
     if process.stdout:
         logger.debug(f'stdout:\n{process.stdout}')
@@ -119,17 +120,6 @@ def get_repo_data(ssh_urls):
     return repos
 
 
-def get_file_repos(filename):
-    """ return list of repos read from filename
-    """
-    if not os.access(filename, os.R_OK):
-        raise ValueError(f"the default repos file '{filename}' cannot be read")
-    with open(filename) as infile:
-        ssh_urls = [line.strip() for line in infile.readlines()]
-    repos = get_repo_data(ssh_urls)
-    return repos
-
-
 def create_directories():
     """ create required directories
     """
@@ -139,7 +129,7 @@ def create_directories():
         'clones': f'{scans_dir}/clones',
         'reports': f'{scans_dir}/reports'
     }
-    for key, value in dirs.items():
+    for _, value in dirs.items():
         Path(value).mkdir(parents=True, exist_ok=True)
     return dirs
 
@@ -240,7 +230,7 @@ def get_process_data_queue(repos):
     for repo in repos:
         repo_queue.put(repo)
     process_data = []
-    for process in range(MAX_PROCESSES):
+    for _ in range(MAX_PROCESSES):
         item = {
             'repo_queue': repo_queue
         }
@@ -263,6 +253,12 @@ def execute_scans(repos, progress):
             'id_justify': True,
             'id_width': max_length,
         }
+        if progress:
+            config['progress_bar'] = {
+                'total': r'^processing total of (?P<value>\d+) commands for repo .*$',
+                'count_regex': r'^executed command: (?P<value>.*)$',
+                'progress_message': 'scanning of all branches complete'
+            }
     else:
         config = {
             'text_regex': r'processing|executing'
@@ -270,31 +266,73 @@ def execute_scans(repos, progress):
         function = scan_repo_queue
         process_data = get_process_data_queue(repos)
 
-    if progress:
-        config['progress_bar'] = {
-            'total': r'^processing total of (?P<value>\d+) commands for repo .*$',
-            'count_regex': r'^executing command: (?P<value>.*)$',
-            # 'progress_message': 'scanning of all branches complete'
-        }
-
     mp4ansi = MP4ansi(function=function, process_data=process_data, config=config)
     mp4ansi.execute(raise_if_error=True)
     return get_results(process_data)
+
+
+def get_file_repos(filename):
+    """ return list of repos read from filename
+    """
+    echo(f'Getting repos from file {filename}...')
+    if not os.access(filename, os.R_OK):
+        raise ValueError(f"the default repos file '{filename}' cannot be read")
+    with open(filename) as infile:
+        ssh_urls = [line.strip() for line in infile.readlines()]
+    repos = get_repo_data(ssh_urls)
+    return repos
+
+
+def get_user_repos(client):
+    """ return repos for authenticated user
+    """
+    user = client.get('/user')['login']
+    echo(f'Getting repos for the authenticated user {user}... this may take awhile')
+    repos = client.get('/user/repos', _get='all', _attributes=['full_name', 'ssh_url'])
+    return repos
+
+
+def get_org_repos(client, org):
+    """ return repos for organization
+    """
+    echo(f'Getting repos for org {org}... this may take awhile')
+    repos = client.get(f'/orgs/{org}/repos', _get='all', _attributes=['full_name', 'ssh_url'])
+    return repos
+
+
+def get_repos(filename, user, org):
+    """ get repos for filename, user or org
+    """
+    client = get_client()
+    if user:
+        repos = get_user_repos(client)
+    elif org:
+        repos = get_org_repos(client, org)
+    else:
+        repos = get_file_repos(filename)
+    return repos
+
+
+def match_criteria(name, include, exclude):
+    """ return tuple match include and exclude on name
+    """
+    match_include = True
+    match_exclude = False
+    if include:
+        match_include = re.match(include, name)
+    if exclude:
+        match_exclude = re.match(exclude, name)
+    return match_include, match_exclude
 
 
 def match_repos(repos, include, exclude):
     """ match repos using include and exclude regex
     """
     logger.debug(f'matching repos using include {include} and exclude {exclude}')
-    match_include = True
-    match_exclude = False
     matched_repos = []
     for repo in repos:
         repo_name = repo['full_name']
-        if include:
-            match_include = re.match(include, repo_name)
-        if exclude:
-            match_exclude = re.match(exclude, repo_name)
+        match_include, match_exclude = match_criteria(repo_name, include, exclude)
         if match_include and not match_exclude:
             matched_repos.append(repo)
     echo(f'A total of {len(matched_repos)} repos will be processed per the specified inclusion and exclusion criteria')
@@ -308,38 +346,11 @@ def display_results(results):
         echo('The following repos failed gitleaks scan:')
         for scan, report in results.items():
             if report:
-                echo(f"{scan}: {report}")
+                home_dir = os.getenv('PWD', HOME)
+                relative = report.replace(home_dir, '.')
+                echo(f"{scan}:\n   {relative}")
     else:
         echo('All branches in all repos passed gitleaks scan')
-
-
-def get_user_repos(client):
-    """ return repos for authenticated user
-    """
-    user = client.get('/user')['login']
-    echo(f'Getting all repos for the authenticated user {user}... this may take awhile')
-    repos = client.get('/user/repos', _get='all', _attributes=['full_name', 'ssh_url'])
-    return repos
-
-
-def get_org_repos(client, org):
-    """ return repos for organization
-    """
-    echo(f'Getting all repos for org {org}... this may take awhile')
-    repos = client.get(f'/orgs/{org}/repos', _get='all', _attributes=['full_name', 'ssh_url'])
-    return repos
-
-
-def get_repos(client, filename, user, org):
-    """ get repos for filename, user or org
-    """
-    if user:
-        repos = get_user_repos(client)
-    elif org:
-        repos = get_org_repos(client, org)
-    else:
-        repos = get_file_repos(filename)
-    return repos
 
 
 def main():
@@ -347,8 +358,7 @@ def main():
     """
     args = get_parser().parse_args()
     configure_logging()
-    client = get_client()
-    repos = get_repos(client, args.filename, args.user, args.org)
+    repos = get_repos(args.filename, args.user, args.org)
     matched_repos = match_repos(repos, args.include, args.exclude)
     results = execute_scans(matched_repos, args.progress)
     display_results(results)

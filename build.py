@@ -24,7 +24,7 @@ default_task = [
     'publish',
     'radon',
     'bandit',
-    # 'anybadge',
+    'anybadge',
     'package']
 license = 'Apache License, Version 2.0'
 description = summary
@@ -48,3 +48,4 @@ def set_properties(project):
     project.set_property('bandit_break_build', True)
     project.set_property('bandit_skip_ids', 'B404,B603,B604')
     project.set_property('anybadge_use_shields', True)
+    project.set_property('anybadge_exclude', 'coverage')

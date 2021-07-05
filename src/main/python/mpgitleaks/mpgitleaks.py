@@ -49,14 +49,14 @@ def get_parser():
         type=str,
         default='',
         required=False,
-        help='a regex to match name of repos to exclude from processing')
+        help='a regex to match name of repos to exclude from scanning')
     parser.add_argument(
         '--include',
         dest='include',
         type=str,
         default='',
         required=False,
-        help='a regex to match name of repos to include in processing')
+        help='a regex to match name of repos to include in scanning')
     parser.add_argument(
         '--progress',
         dest='progress',
@@ -129,7 +129,7 @@ def get_repo_data(ssh_urls):
     return repos
 
 
-def create_directories():
+def create_dirs():
     """ create and return required directories
     """
     scans_dir = f"{os.getenv('PWD', HOME)}/scans"
@@ -150,13 +150,13 @@ def scan_repo(process_data, *args):
     repo_full_name = process_data['full_name']
     repo_name = repo_full_name.replace('/', '-')
 
-    logger.debug(f'processing repo {repo_full_name}')
+    logger.debug(f'scanning repo {repo_full_name}')
 
     client = get_client()
     branches = client.get(f'/repos/{repo_full_name}/branches', _get='all', _attributes=['name'])
-    logger.debug(f'processing total of {len(branches) * 2 + 1} commands for repo {repo_full_name}')
+    logger.debug(f'executing total of {len(branches) * 2 + 1} commands to scan repo {repo_full_name}')
 
-    dirs = create_directories()
+    dirs = create_dirs()
 
     clone_dir = f"{dirs['clones']}/{repo_name}"
     shutil.rmtree(clone_dir, ignore_errors=True)
@@ -165,23 +165,24 @@ def scan_repo(process_data, *args):
     result = {}
     for branch in branches:
         branch_name = branch['name']
-        logger.debug(f'processing branch {branch_name} for repo {repo_full_name}')
+        logger.debug(f'scanning branch {branch_name} for repo {repo_full_name}')
         execute_command(f'git checkout -b {branch_name} origin/{branch_name}', cwd=clone_dir)
         safe_branch_name = branch_name.replace('/', '-')
         report = f"{dirs['reports']}/{repo_name}-{safe_branch_name}.json"
         exit_code = execute_command(f'gitleaks --path=. --branch={branch_name} --report={report} --threads=10', cwd=clone_dir)
         result[f'{repo_full_name}:{branch_name}'] = False if exit_code == 0 else report
-        logger.debug(f'processing of branch {branch_name} for repo {repo_full_name} is complete')
+        logger.debug(f'scanning of branch {branch_name} for repo {repo_full_name} is complete')
 
-    logger.debug(f'processing of repo {repo_full_name} complete')
+    logger.debug(f'scanning of repo {repo_full_name} complete')
     return result
 
 
 def scan_repo_queue(process_data, *args):
     """ execute gitleaks scan on all branches of repo pulled from queue
     """
+    offset = process_data['offset']
     repo_queue = process_data['repo_queue']
-    dirs = create_directories()
+    dirs = create_dirs()
     client = get_client()
     zfill = len(str(repo_queue.qsize()))
     result = {}
@@ -194,11 +195,12 @@ def scan_repo_queue(process_data, *args):
             repo_full_name = repo['full_name']
             repo_name = repo_full_name.replace('/', '-')
 
+            logger.debug(f'offset {offset}| {str(repo_count).zfill(zfill)} ')
+            logger.debug(f'scanning repo {repo_full_name}')
             repo_count += 1
-            logger.debug(f'processing repo {repo_full_name}')
 
             branches = client.get(f'/repos/{repo_full_name}/branches', _get='all', _attributes=['name'])
-            logger.debug(f'processing total of {len(branches) * 2 + 1} commands for repo {repo_full_name}')
+            logger.debug(f'executing total of {len(branches) * 2 + 1} commands to scan repo {repo_full_name}')
 
             clone_dir = f"{dirs['clones']}/{repo_name}"
             shutil.rmtree(clone_dir, ignore_errors=True)
@@ -206,20 +208,22 @@ def scan_repo_queue(process_data, *args):
 
             for branch in branches:
                 branch_name = branch['name']
-                logger.debug(f'processing branch {branch_name} for repo {repo_full_name}')
+                logger.debug(f'scanning branch {branch_name} for repo {repo_full_name}')
                 execute_command(f'git checkout -b {branch_name} origin/{branch_name}', cwd=clone_dir)
                 safe_branch_name = branch_name.replace('/', '-')
                 report = f"{dirs['reports']}/{repo_name}-{safe_branch_name}.json"
                 exit_code = execute_command(f'gitleaks --path=. --branch={branch_name} --report={report} --threads=10', cwd=clone_dir)
                 result[f'{repo_full_name}:{branch_name}'] = False if exit_code == 0 else report
-                logger.debug(f'processing of branch {branch_name} for repo {repo_full_name} is complete')
+                logger.debug(f'scanning of branch {branch_name} for repo {repo_full_name} is complete')
 
-            logger.debug(f'processing of repo {repo_full_name} complete')
+            logger.debug(f'scanning of repo {repo_full_name} complete')
+            # reset has the affect of resetting the progress bar
+            logger.debug('RESET')
 
         except Empty:
             logger.debug('repo queue is empty')
             break
-    logger.debug(f'processing of repos complete - scanned {str(repo_count).zfill(zfill)} repos')
+    logger.debug(f'scanning of repos complete - scanned {str(repo_count).zfill(zfill)} repos')
     return result
 
 
@@ -239,8 +243,9 @@ def get_process_data_queue(repos):
     for repo in repos:
         repo_queue.put(repo)
     process_data = []
-    for _ in range(MAX_PROCESSES):
+    for offset in range(MAX_PROCESSES):
         item = {
+            'offset': str(offset).zfill(len(str(MAX_PROCESSES))),
             'repo_queue': repo_queue
         }
         process_data.append(item)
@@ -258,23 +263,24 @@ def execute_scans(repos, progress):
         process_data = repos
         max_length = max(len(item['full_name']) for item in repos)
         config = {
-            'id_regex': r'^processing repo (?P<value>.*)$',
+            'id_regex': r'^scanning repo (?P<value>.*)$',
             'id_justify': True,
             'id_width': max_length,
         }
-        if progress:
-            config['progress_bar'] = {
-                'total': r'^processing total of (?P<value>\d+) commands for repo .*$',
-                'count_regex': r'^executed command: (?P<value>.*)$',
-                'progress_message': 'scanning of all branches complete'
-            }
     else:
         config = {
-            'text_regex': r'processing|executing'
+            'id_regex': r'^offset (?P<value>.*)$',
+            'text_regex': r'scanning|executing'
         }
         function = scan_repo_queue
         process_data = get_process_data_queue(repos)
 
+    if progress:
+        config['progress_bar'] = {
+            'total': r'^executing total of (?P<value>\d+) commands to scan repo .*$',
+            'count_regex': r'^executed command: (?P<value>.*)$',
+            'progress_message': 'scanning of all branches complete'
+        }
     mp4ansi = MP4ansi(function=function, process_data=process_data, config=config)
     mp4ansi.execute(raise_if_error=True)
     return get_results(process_data)

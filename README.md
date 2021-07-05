@@ -6,7 +6,7 @@
 
 A Python script that wraps the [gitleaks](https://github.com/zricethezav/gitleaks) tool to enable scanning of multiple repositories in parallel. 
 
-The main factors for writing this script were:
+The motivation behind writing this script was:
 * implement workaround for `gitleaks` intermittent failures when cloning very large repositories
 * implement ability to scan multiple repostiories in parallel
 * implement ability to scan all repositories for the authenticated user or specified organization

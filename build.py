@@ -17,7 +17,7 @@ name = 'mpgitleaks'
 authors = [Author('Emilio Reyes', 'soda480@gmail.com')]
 summary = 'A Python script that wraps the gitleaks tool to enable scanning of multiple repositories in parallel'
 url = 'https://github.com/soda480/mpgitleaks'
-version = '0.1.1'
+version = '0.1.2'
 default_task = [
     'clean',
     'analyze',

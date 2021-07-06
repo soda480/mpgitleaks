@@ -99,13 +99,23 @@ def get_client():
     return GitHubAPI.get_client()
 
 
-def execute_command(command, **kwargs):
+def redact(str_to_redact, items_to_redact):
+    """ return str_to_redact with items redacted
+    """
+    if items_to_redact:
+        for item_to_redact in items_to_redact:
+            str_to_redact = str_to_redact.replace(item_to_redact, '***')
+    return str_to_redact
+
+
+def execute_command(command, items_to_redact=None, **kwargs):
     """ execute command
     """
     command_split = command.split(' ')
-    logger.debug(f'executing command: {command}')
+    redacted_command = redact(command, items_to_redact)
+    logger.debug(f'executing command: {redacted_command}')
     process = subprocess.run(command_split, capture_output=True, text=True, **kwargs)
-    logger.debug(f'executed command: {command}')
+    logger.debug(f'executed command: {redacted_command}')
     logger.debug(f'returncode: {process.returncode}')
     if process.stdout:
         logger.debug(f'stdout:\n{process.stdout}')
@@ -114,15 +124,15 @@ def execute_command(command, **kwargs):
     return process.returncode
 
 
-def get_repo_data(ssh_urls):
-    """ return list of repo data from ssh_urls
+def get_repo_data(clone_urls):
+    """ return list of repo data from clone_urls
     """
     repos = []
-    for ssh_url in ssh_urls:
-        owner = ssh_url.split(':')[1].split('/')[0]
-        name = ssh_url.split('/')[-1].replace('.git', '')
+    for clone_url in clone_urls:
+        owner = clone_url.split('/')[3]
+        name = clone_url.split('/')[-1].replace('.git', '')
         item = {
-            'ssh_url': ssh_url,
+            'clone_url': clone_url,
             'full_name': f'{owner}/{name}'
         }
         repos.append(item)
@@ -143,11 +153,12 @@ def create_dirs():
     return dirs
 
 
-def scan_repo(process_data, *args):
+def scan_repo(process_data, shared_data):
     """ execute gitleaks scan on all branches of repo
     """
-    repo_ssh_url = process_data['ssh_url']
+    repo_clone_url = process_data['clone_url']
     repo_full_name = process_data['full_name']
+    username = shared_data['username']
     repo_name = repo_full_name.replace('/', '-')
 
     logger.debug(f'scanning repo {repo_full_name}')
@@ -160,7 +171,8 @@ def scan_repo(process_data, *args):
 
     clone_dir = f"{dirs['clones']}/{repo_name}"
     shutil.rmtree(clone_dir, ignore_errors=True)
-    execute_command(f'git clone {repo_ssh_url} {repo_name}', cwd=dirs['clones'])
+    repo_clone_url = repo_clone_url.replace('https://', f'https://{username}:{client.bearer_token}@')
+    execute_command(f'git clone {repo_clone_url} {repo_name}', items_to_redact=[client.bearer_token], cwd=dirs['clones'])
 
     result = {}
     for branch in branches:
@@ -177,11 +189,12 @@ def scan_repo(process_data, *args):
     return result
 
 
-def scan_repo_queue(process_data, *args):
+def scan_repo_queue(process_data, shared_data):
     """ execute gitleaks scan on all branches of repo pulled from queue
     """
     offset = process_data['offset']
     repo_queue = process_data['repo_queue']
+    username = shared_data['username']
     dirs = create_dirs()
     client = get_client()
     zfill = len(str(repo_queue.qsize()))
@@ -191,7 +204,7 @@ def scan_repo_queue(process_data, *args):
         try:
             repo = repo_queue.get(timeout=10)
 
-            repo_ssh_url = repo['ssh_url']
+            repo_clone_url = repo['clone_url']
             repo_full_name = repo['full_name']
             repo_name = repo_full_name.replace('/', '-')
 
@@ -204,7 +217,8 @@ def scan_repo_queue(process_data, *args):
 
             clone_dir = f"{dirs['clones']}/{repo_name}"
             shutil.rmtree(clone_dir, ignore_errors=True)
-            execute_command(f'git clone {repo_ssh_url} {repo_name}', cwd=dirs['clones'])
+            repo_clone_url = repo_clone_url.replace('https://', f'https://{username}:{client.bearer_token}@')
+            execute_command(f'git clone {repo_clone_url} {repo_name}', items_to_redact=[client.bearer_token], cwd=dirs['clones'])
 
             for branch in branches:
                 branch_name = branch['name']
@@ -252,11 +266,15 @@ def get_process_data_queue(repos):
     return process_data
 
 
-def execute_scans(repos, progress):
+def execute_scans(repos, progress, username):
     """ execute scans for repoos using multiprocessing
     """
     if not repos:
         raise ValueError('no repos to process')
+
+    shared_data = {
+        'username': username
+    }
 
     if len(repos) <= MAX_PROCESSES:
         function = scan_repo
@@ -281,9 +299,15 @@ def execute_scans(repos, progress):
             'count_regex': r'^executed command: (?P<value>.*)$',
             'progress_message': 'scanning of all branches complete'
         }
-    mp4ansi = MP4ansi(function=function, process_data=process_data, config=config)
+    mp4ansi = MP4ansi(function=function, process_data=process_data, shared_data=shared_data, config=config)
     mp4ansi.execute(raise_if_error=True)
     return get_results(process_data)
+
+
+def get_authenticated_user(client):
+    """ return the name of the authenticated user
+    """
+    return client.get('/user')['login']
 
 
 def get_file_repos(filename):
@@ -293,19 +317,18 @@ def get_file_repos(filename):
     if not os.access(filename, os.R_OK):
         raise ValueError(f"the default repos file '{filename}' cannot be read")
     with open(filename) as infile:
-        ssh_urls = [line.strip() for line in infile.readlines()]
-    repos = get_repo_data(ssh_urls)
+        clone_urls = [line.strip() for line in infile.readlines()]
+    repos = get_repo_data(clone_urls)
     echo(f"A total of {len(repos)} reops were read in from '{filename}'")
     return repos
 
 
-def get_user_repos(client):
+def get_user_repos(client, username):
     """ return repos for authenticated user
     """
-    user = client.get('/user')['login']
-    echo(f"Getting repos for the authenticated user '{user}' ...")
-    repos = client.get('/user/repos', _get='all', _attributes=['full_name', 'ssh_url'])
-    echo(f"A total of {len(repos)} reops were retrieved from authenticated user '{user}'")
+    echo(f"Getting repos for the authenticated user '{username}' ...")
+    repos = client.get('/user/repos', _get='all', _attributes=['full_name', 'clone_url'])
+    echo(f"A total of {len(repos)} reops were retrieved from authenticated user '{username}'")
     return repos
 
 
@@ -313,17 +336,16 @@ def get_org_repos(client, org):
     """ return repos for organization
     """
     echo(f"Getting repos for org: '{org}' ...")
-    repos = client.get(f'/orgs/{org}/repos', _get='all', _attributes=['full_name', 'ssh_url'])
+    repos = client.get(f'/orgs/{org}/repos', _get='all', _attributes=['full_name', 'clone_url'])
     echo(f"A total of {len(repos)} reops were retrieved from organization '{org}'")
     return repos
 
 
-def get_repos(filename, user, org):
+def get_repos(client, filename, user, org, username):
     """ get repos for filename, user or org
     """
-    client = get_client()
     if user:
-        repos = get_user_repos(client)
+        repos = get_user_repos(client, username)
     elif org:
         repos = get_org_repos(client, org)
     else:
@@ -377,12 +399,14 @@ def main():
     configure_logging(args.log)
 
     try:
-        repos = get_repos(args.filename, args.user, args.org)
+        client = get_client()
+        username = get_authenticated_user(client)
+        repos = get_repos(client, args.filename, args.user, args.org, username)
         if args.include or args.exclude:
             matched_repos = match_repos(repos, args.include, args.exclude)
         else:
             matched_repos = repos
-        results = execute_scans(matched_repos, args.progress)
+        results = execute_scans(matched_repos, args.progress, username)
         display_results(results)
 
     except Exception as exception:

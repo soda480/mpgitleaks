@@ -9,13 +9,12 @@ A Python script that wraps the [gitleaks](https://github.com/zricethezav/gitleak
 The motivation behind writing this script was:
 * implement workaround for `gitleaks` intermittent failures when cloning very large repositories
 * implement ability to scan multiple repostiories in parallel
-* implement ability to scan all repositories for the authenticated user or specified organization
+* implement ability to scan repositories for a user, a specified organization or read from a file
 
 **Notes**:
-* the script uses ssh to clone the repos
-  * you must have an ssh key configured on the target GitHub instance
-  * the Docker container must run with your .ssh folder bind mounted
-  * if using `--file` then ssh urls must be supplied in the file
+* the script uses https to clone the repos
+  * you must set the `GH_TOKEN_PSW` to a 'personal access token' that has access to the repos being scanned
+  * if using `--file` then https clone urls must be supplied in the file
 * the maximum number of background processes (workers) that will be started is `35`
   * if the number of repos to process is less than the maximum number of workers
     * the script will start one worker per repository
@@ -61,10 +60,11 @@ docker container run \
 -e GH_BASE_URL \
 -e GH_TOKEN_PSW \
 -v $PWD:/opt/mpgitleaks \
--v $HOME/.ssh:/root/.ssh \
 soda480/mpgitleaks:latest \
 [MPGITLEAKS OPTIONS]
 ```
+
+**Note**: the `http[s]_proxy` environment variables are only required if executing behind a proxy server
 
 ### Examples
 

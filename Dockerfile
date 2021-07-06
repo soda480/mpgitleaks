@@ -16,6 +16,6 @@ ENV PYTHONDONTWRITEBYTECODE 1
 COPY --from=zricethezav/gitleaks:latest /usr/bin/gitleaks /usr/bin/gitleaks
 WORKDIR /opt/mpgitleaks
 COPY --from=build /mpgitleaks/target/dist/mpgitleaks-*/dist/mpgitleaks-*.tar.gz /opt/mpgitleaks
-RUN apk add --update git openssh
+RUN apk add --update git
 RUN pip install mpgitleaks-*.tar.gz
 ENTRYPOINT ["mpgitleaks"]

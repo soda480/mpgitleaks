@@ -1,4 +1,3 @@
-[![complexity](https://img.shields.io/badge/complexity-Stable:%207-olive)](https://radon.readthedocs.io/en/latest/api.html#module-radon.complexity)
 # mpgitleaks
 [![build](https://github.com/soda480/mpgitleaks/actions/workflows/main.yml/badge.svg)](https://github.com/soda480/mpgitleaks/actions/workflows/main.yml)
 [![complexity](https://img.shields.io/badge/complexity-Simple:%205-brightgreen)](https://radon.readthedocs.io/en/latest/api.html#module-radon.complexity)

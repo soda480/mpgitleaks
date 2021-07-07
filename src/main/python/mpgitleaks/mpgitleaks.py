@@ -255,7 +255,6 @@ def scan_branch(process_data, shared_data):
 def scan_repo_queue(process_data, shared_data):
     """ execute gitleaks scan on all branches of repo pulled from queue
     """
-    offset = process_data['offset']
     repo_queue = process_data['item_queue']
     queue_size = process_data['queue_size']
     username = shared_data['username']
@@ -309,7 +308,6 @@ def scan_repo_queue(process_data, shared_data):
 def scan_branch_queue(process_data, shared_data):
     """ execute gitleaks scan on single branch of repo pulled from queue
     """
-    offset = process_data['offset']
     branch_queue = process_data['item_queue']
     queue_size = process_data['queue_size']
     username = shared_data['username']
@@ -370,9 +368,8 @@ def get_process_data_queue(items):
     for item in items:
         item_queue.put(item)
     process_data = []
-    for offset in range(MAX_PROCESSES):
+    for _ in range(MAX_PROCESSES):
         process_data.append({
-            'offset': str(offset).zfill(len(str(MAX_PROCESSES))),
             'item_queue': item_queue,
             'queue_size': item_queue.qsize()
         })

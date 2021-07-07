@@ -122,8 +122,7 @@ def execute_command(command, items_to_redact=None, **kwargs):
     redacted_command = redact(command, items_to_redact)
     logger.debug(f'executing command: {redacted_command}')
     process = subprocess.run(command_split, capture_output=True, text=True, **kwargs)
-    logger.debug(f'executed command: {redacted_command}')
-    logger.debug(f'returncode: {process.returncode}')
+    logger.debug(f"executed command: '{redacted_command}' returncode: {process.returncode}")
     if process.stdout:
         logger.debug(f'stdout:\n{process.stdout}')
     if process.stderr:
@@ -225,7 +224,6 @@ def scan_repo(process_data, shared_data):
 def scan_branch(process_data, shared_data):
     """ execute gitleaks scan on all branches of repo
     """
-    results = []
     username = shared_data['username']
     repo_clone_url = process_data['clone_url']
     repo_full_name = process_data['full_name']
@@ -247,9 +245,9 @@ def scan_branch(process_data, shared_data):
     # execute gitleaks
     report = f"{dirs['reports']}/{safe_branch_full_name}.json"
     exit_code = execute_command(f'gitleaks --path=. --branch={branch_name} --report={report} --threads=10', cwd=clone_dir)
-    results.append(get_scan_result(branch_full_name, exit_code, report))
+    result = get_scan_result(branch_full_name, exit_code, report)
     logger.debug(f'scanning of branch {branch_full_name} complete')
-    return results
+    return [result]
 
 
 def scan_repo_queue(process_data, shared_data):
@@ -325,7 +323,6 @@ def scan_branch_queue(process_data, shared_data):
             repo_clone_url = branch['clone_url']
             repo_full_name = branch['full_name']
             branch_name = branch['branch_name']
-
             branch_full_name = f"{repo_full_name}@{branch_name}"
             safe_branch_full_name = branch_full_name.replace('/', '|')
 
@@ -339,7 +336,8 @@ def scan_branch_queue(process_data, shared_data):
 
             report = f"{dirs['reports']}/{safe_branch_full_name}.json"
             exit_code = execute_command(f'gitleaks --path=. --branch={branch_name} --report={report} --threads=10', cwd=clone_dir)
-            results.append(get_scan_result(branch_full_name, exit_code, report))
+            result = get_scan_result(branch_full_name, exit_code, report)
+            results.append(result)
 
             logger.debug(f'scanning of branch {branch_full_name} is complete')
             branch_count += 1
@@ -500,7 +498,7 @@ def get_branches(client, repos):
             item = {}
             item.update(repo)
             item['branch_name'] = branch['name']
-            item['full_name'] = f"{item['full_name']}:{item['branch_name']}"
+            item['full_name'] = repo_full_name
             branches.append(item)
     echo(f"A total of {len(branches)} branches were retrieved from {len(repos)} repos")
     return branches
@@ -527,7 +525,7 @@ def get_matched(items, include, exclude, item_type):
         match_include, match_exclude = match_criteria(item['full_name'], include, exclude)
         if match_include and not match_exclude:
             matched.append(item)
-    echo(f"A total of {len(matched)} {item_type} were filtered using the inclusion/exclusion criteria")
+    echo(f"A total of {len(matched)} {item_type} remain after applying the inclusion/exclusion filters")
     return matched
 
 

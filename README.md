@@ -1,6 +1,7 @@
+
 # mpgitleaks
 [![build](https://github.com/soda480/mpgitleaks/actions/workflows/main.yml/badge.svg)](https://github.com/soda480/mpgitleaks/actions/workflows/main.yml)
-[![complexity](https://img.shields.io/badge/complexity-Simple:%205-brightgreen)](https://radon.readthedocs.io/en/latest/api.html#module-radon.complexity)
+[![complexity](https://img.shields.io/badge/complexity-Simple:%204-brightgreen)](https://radon.readthedocs.io/en/latest/api.html#module-radon.complexity)
 [![vulnerabilities](https://img.shields.io/badge/vulnerabilities-None-brightgreen)](https://pypi.org/project/bandit/)
 [![python](https://img.shields.io/badge/python-3.9-teal)](https://www.python.org/downloads/)
 
@@ -27,7 +28,7 @@ The motivation behind writing this script was:
 
 ## Usage
 ```bash
-usage: mpgitleaks [-h] [--file FILENAME] [--user] [--org ORG] [--exclude EXCLUDE] [--include INCLUDE] [--progress] [--log]
+usage: mpgitleaks [-h] [--file FILENAME] [--user] [--org ORG] [--exclude EXCLUDE] [--include INCLUDE] [--progress] [--log] [--branches]
 
 A Python script that wraps the gitleaks tool to enable scanning of multiple repositories in parallel
 
@@ -36,10 +37,11 @@ optional arguments:
   --file FILENAME    process repos contained in the specified file
   --user             process repos for the authenticated user
   --org ORG          process repos for the specified organization
-  --exclude EXCLUDE  a regex to match name of repos to exclude from processing
-  --include INCLUDE  a regex to match name of repos to include in processing
+  --exclude EXCLUDE  a regex to match name of repos to exclude from scanning
+  --include INCLUDE  a regex to match name of repos to include in scanning
   --progress         display progress bar for each process
   --log              log messages to a log file
+  --branches         set process affinity at repo branch level
 ```
 
 ## Execution

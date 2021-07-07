@@ -1,0 +1,10 @@
+https://github.com/soda480/mpcurses.git
+https://github.com/soda480/rest3client.git
+https://github.com/soda480/github3api.git
+https://github.com/soda480/mp4ansi.git
+https://github.com/soda480/mpmq.git
+https://github.com/soda480/sample-service.git
+https://github.com/soda480/mplogp.git
+https://github.com/soda480/pybuilder-anybadge.git
+https://github.com/soda480/pybuilder-radon.git
+https://github.com/soda480/pybuilder-bandit.git

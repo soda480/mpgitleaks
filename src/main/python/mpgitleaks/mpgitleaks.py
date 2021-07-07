@@ -60,10 +60,10 @@ def get_parser():
         required=False,
         help='a regex to match name of repos to include in scanning')
     parser.add_argument(
-        '--progress',
-        dest='progress',
+        '--noprogress',
+        dest='no_progress',
         action='store_true',
-        help='display progress bar for each process')
+        help='do not display progress bar for each process - display log messages instead')
     parser.add_argument(
         '--log',
         dest='log',
@@ -578,7 +578,7 @@ def main():
         else:
             matched_items = matched_repos
 
-        results = execute_scans(matched_items, args.progress, username, args.branches)
+        results = execute_scans(matched_items, not args.no_progress, username, args.branches)
         check_results(results)
 
     except Exception as exception:

@@ -28,7 +28,7 @@ The motivation behind writing this script was:
 
 ## Usage
 ```bash
-usage: mpgitleaks [-h] [--file FILENAME] [--user] [--org ORG] [--exclude EXCLUDE] [--include INCLUDE] [--progress] [--log] [--branches]
+usage: mpgitleaks [-h] [--file FILENAME] [--user] [--org ORG] [--exclude EXCLUDE] [--include INCLUDE] [--noprogress] [--log] [--branches]
 
 A Python script that wraps the gitleaks tool to enable scanning of multiple repositories in parallel
 
@@ -39,7 +39,7 @@ optional arguments:
   --org ORG          process repos for the specified organization
   --exclude EXCLUDE  a regex to match name of repos to exclude from scanning
   --include INCLUDE  a regex to match name of repos to include in scanning
-  --progress         display progress bar for each process
+  --noprogress       do not display progress bar for each process - display log messages instead
   --log              log messages to a log file
   --branches         set process affinity at repo branch level
 ```

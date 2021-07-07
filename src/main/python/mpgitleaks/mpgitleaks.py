@@ -192,16 +192,18 @@ def scan_repo(process_data, shared_data):
     username = shared_data['username']
     repo_name = repo_full_name.replace('/', '|')
 
-    logger.debug(f'scanning item {repo_full_name}')
-
     client = get_client()
     branches = client.get(f'/repos/{repo_full_name}/branches', _get='all', _attributes=['name'])
-    logger.debug(f'executing {len(branches) * 2 + 1} commands to scan repo {repo_full_name}')
+    logger.debug(f'executing {len(branches) * 2 + 2} commands to scan repo {repo_full_name}')
+
+    logger.debug(f'scanning item {repo_full_name}')
+    logger.debug('executed command: setup')
 
     dirs = create_dirs()
     clone_dir = f"{dirs['clones']}/{repo_name}"
     shutil.rmtree(clone_dir, ignore_errors=True)
     repo_clone_url = repo_clone_url.replace('https://', f'https://{username}:{client.bearer_token}@')
+
     execute_command(f'git clone {repo_clone_url} {repo_name}', items_to_redact=[client.bearer_token], cwd=dirs['clones'])
 
     results = []
@@ -264,14 +266,15 @@ def scan_repo_queue(process_data, shared_data):
     repo_count = 0
     while True:
         try:
-            repo = repo_queue.get(timeout=10)
-            logger.debug(f'offset {offset}|{str(repo_count).zfill(zfill)}')
+            repo = repo_queue.get(timeout=6)
+            # reset progress bar for next repo
+            logger.debug('RESET')
 
             repo_clone_url = repo['clone_url']
             repo_full_name = repo['full_name']
             safe_repo_full_name = repo_full_name.replace('/', '|')
 
-            logger.debug(f'scanning item {repo_full_name}')
+            logger.debug(f'scanning item [{str(repo_count).zfill(zfill)}] {repo_full_name}')
 
             branches = client.get(f'/repos/{repo_full_name}/branches', _get='all', _attributes=['name'])
             logger.debug(f'executing {len(branches) * 2 + 1} commands to scan repo {repo_full_name}')
@@ -294,9 +297,7 @@ def scan_repo_queue(process_data, shared_data):
 
             logger.debug(f'scanning of repo {repo_full_name} complete')
             repo_count += 1
-            logger.debug(f'offset {offset}|{str(repo_count).zfill(zfill)}')
-            # reset progress bar for next repo
-            logger.debug('RESET')
+            logger.debug(f'scanning item [{str(repo_count).zfill(zfill)}]')
 
         except Empty:
             logger.debug('repo queue is empty')
@@ -319,8 +320,9 @@ def scan_branch_queue(process_data, shared_data):
     branch_count = 0
     while True:
         try:
-            branch = branch_queue.get(timeout=10)
-            logger.debug(f'offset {offset}|{str(branch_count).zfill(zfill)}')
+            branch = branch_queue.get(timeout=6)
+            # reset progress bar for next item
+            logger.debug('RESET')
 
             repo_clone_url = branch['clone_url']
             repo_full_name = branch['full_name']
@@ -329,7 +331,7 @@ def scan_branch_queue(process_data, shared_data):
             branch_full_name = f"{repo_full_name}@{branch_name}"
             safe_branch_full_name = branch_full_name.replace('/', '|')
 
-            logger.debug(f'scanning item {branch_full_name}')
+            logger.debug(f'scanning item [{str(branch_count).zfill(zfill)}] {branch_full_name}')
             logger.debug(f'executing 2 commands to scan branch {branch_full_name}')
 
             clone_dir = f"{dirs['clones']}/{safe_branch_full_name}"
@@ -343,9 +345,7 @@ def scan_branch_queue(process_data, shared_data):
 
             logger.debug(f'scanning of branch {branch_full_name} is complete')
             branch_count += 1
-            logger.debug(f'offset {offset}|{str(branch_count).zfill(zfill)}')
-            # reset progress bar for next item
-            logger.debug('RESET')
+            logger.debug(f'scanning item [{str(branch_count).zfill(zfill)}]')
 
         except Empty:
             logger.debug('repo branch queue is empty')
@@ -387,7 +387,7 @@ def get_arguments_for_queued_execution(items, branches):
     if branches:
         function = scan_branch_queue
     config = {
-        'id_regex': r'^offset (?P<value>.*)$',
+        'id_regex': r'^scanning item (?P<value>.*)$',
         'text_regex': r'scanning|executing'
     }
     process_data = get_process_data_queue(items)
@@ -405,11 +405,9 @@ def get_arguments_for_execution(items, branches):
     if branches:
         function = scan_branch
     process_data = items
-    max_length = max(len(item['full_name']) for item in items)
     config = {
         'id_regex': r'^scanning item (?P<value>.*)$',
-        'id_justify': True,
-        'id_width': max_length,
+        'text_regex': r'scanning|executing'
     }
     arguments['function'] = function
     arguments['process_data'] = process_data
@@ -436,7 +434,8 @@ def execute_scans(items, progress, username, branches):
         arguments['config']['progress_bar'] = {
             'total': r'^executing (?P<value>\d+) commands to scan .*$',
             'count_regex': r'^executed command: (?P<value>.*)$',
-            'progress_message': 'Processing complete'
+            'max_digits': 2
+            # 'progress_message': 'Processing complete'
         }
     mp4ansi = MP4ansi(**arguments)
     mp4ansi.execute(raise_if_error=True)
@@ -559,7 +558,7 @@ def check_results(results):
     name = os.path.basename(sys.argv[0])
     filename = f'{name}.csv'
     if any(result['leaks'] for result in results):
-        echo(f'Leaks were found')
+        echo('Leaks were found')
     else:
         echo('No leaks were found')
     write_csv(results, filename)

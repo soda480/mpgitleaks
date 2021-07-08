@@ -10,11 +10,10 @@ import argparse
 import subprocess
 from queue import Empty
 from pathlib import Path
-from colorama import Style
-from colorama import Fore
-from colorama import Back
 from multiprocessing import Queue
 
+from colorama import Style
+from colorama import Fore
 from mp4ansi import MP4ansi
 from github3api import GitHubAPI
 

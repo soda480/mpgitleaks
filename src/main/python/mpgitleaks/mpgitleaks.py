@@ -10,6 +10,9 @@ import argparse
 import subprocess
 from queue import Empty
 from pathlib import Path
+from colorama import Style
+from colorama import Fore
+from colorama import Back
 from multiprocessing import Queue
 
 from mp4ansi import MP4ansi
@@ -73,29 +76,42 @@ def get_parser():
         '--branches',
         dest='branches',
         action='store_true',
-        help='set process affinity at repo branch level')
+        help='set process affinity at repo branch level (experimental)')
     return parser
 
 
 def configure_logging(create):
-    """ configure logging
+    """ configure logging and create logfile if specified
     """
-    if not create:
-        return
-    name = os.path.basename(sys.argv[0])
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
-    file_handler = logging.FileHandler(f'{name}.log')
-    file_formatter = logging.Formatter("%(asctime)s %(processName)s [%(funcName)s] %(levelname)s %(message)s")
-    file_handler.setFormatter(file_formatter)
-    root_logger.addHandler(file_handler)
+
+    if create:
+        name = os.path.basename(sys.argv[0])
+        file_handler = logging.FileHandler(f'{name}.log')
+        file_formatter = logging.Formatter("%(asctime)s %(processName)s [%(funcName)s] %(levelname)s %(message)s")
+        file_handler.setFormatter(file_formatter)
+        root_logger.addHandler(file_handler)
 
 
-def echo(message):
-    """ print and log message
+def add_stream_handler(stream_handler=None):
+    """ add stream handler to logging
     """
-    logger.debug(message)
-    print(message)
+    root_logger = logging.getLogger()
+    if not stream_handler:
+        stream_handler = logging.StreamHandler()
+        stream_formatter = logging.Formatter("[" + Style.DIM + "%(levelname)s" + Style.RESET_ALL + "] %(message)s")
+        stream_handler.setFormatter(stream_formatter)
+        stream_handler.setLevel(logging.INFO)
+    root_logger.addHandler(stream_handler)
+    return stream_handler
+
+
+def remove_stream_handler(stream_handler):
+    """ remove stream handler from logging
+    """
+    root_logger = logging.getLogger()
+    root_logger.removeHandler(stream_handler)
 
 
 def get_client():
@@ -446,31 +462,31 @@ def get_authenticated_user(client):
 def get_file_repos(filename):
     """ return repos read from filename
     """
-    echo(f"Getting repos from file '{filename}' ...")
+    logger.info(f"retrieving repos from file '{filename}'")
     if not os.access(filename, os.R_OK):
-        raise ValueError(f"the default repos file '{filename}' cannot be read")
+        raise ValueError(f"repos file '{filename}' cannot be read")
     with open(filename) as infile:
         clone_urls = [line.strip() for line in infile.readlines()]
     repos = get_repo_data(clone_urls)
-    echo(f"A total of {len(repos)} repos were read in from '{filename}'")
+    logger.info(f"{len(repos)} repos were retrieved from file '{filename}'")
     return repos
 
 
 def get_user_repos(client, username):
     """ return repos for authenticated user
     """
-    echo(f"Getting repos for the authenticated user '{username}' ...")
+    logger.info(f"retrieving repos from authenticated user '{username}'")
     repos = client.get('/user/repos', _get='all', _attributes=['full_name', 'clone_url'])
-    echo(f"A total of {len(repos)} repos were retrieved from authenticated user '{username}'")
+    logger.info(f"{len(repos)} repos were retrieved from authenticated user '{username}'")
     return repos
 
 
 def get_org_repos(client, org):
     """ return repos for organization
     """
-    echo(f"Getting repos for org: '{org}' ...")
+    logger.info(f"retrieving repos from organization '{org}'")
     repos = client.get(f'/orgs/{org}/repos', _get='all', _attributes=['full_name', 'clone_url'])
-    echo(f"A total of {len(repos)} repos were retrieved from organization '{org}'")
+    logger.info(f"{len(repos)} repos were retrieved from organization '{org}'")
     return repos
 
 
@@ -489,7 +505,7 @@ def get_repos(client, filename, user, org, username):
 def get_branches(client, repos):
     """ returl list of branches for repos
     """
-    echo(f"Getting branches for {len(repos)} repos ...")
+    logger.info(f"retrieving branches for {len(repos)} repos")
     branches = []
     for repo in repos:
         repo_full_name = repo['full_name']
@@ -500,7 +516,7 @@ def get_branches(client, repos):
             item['branch_name'] = branch['name']
             item['full_name'] = repo_full_name
             branches.append(item)
-    echo(f"A total of {len(branches)} branches were retrieved from {len(repos)} repos")
+    logger.info(f"{len(branches)} branches were retrieved from {len(repos)} repos")
     return branches
 
 
@@ -525,7 +541,7 @@ def get_matched(items, include, exclude, item_type):
         match_include, match_exclude = match_criteria(item['full_name'], include, exclude)
         if match_include and not match_exclude:
             matched.append(item)
-    echo(f"A total of {len(matched)} {item_type} remain after applying the inclusion/exclusion filters")
+    logger.info(f"after applying inclusion/exclusion filters - {len(matched)} {item_type} remain")
     return matched
 
 
@@ -553,11 +569,13 @@ def check_results(results):
     name = os.path.basename(sys.argv[0])
     filename = f'{name}.csv'
     if any(result['leaks'] for result in results):
-        echo('Leaks were found')
+        logger.debug('gitleaks DID detect hardcoded secrets')
+        print(f"{Style.BRIGHT + Fore.RED}GITLEAKS SCAN NOT OK - SECRETS DETECTED{Style.RESET_ALL}")
     else:
-        echo('No leaks were found')
+        logger.debug('gitleaks DID NOT detect hardcoded secrets')
+        print(f"{Style.BRIGHT + Fore.GREEN}GITLEAKS SCAN OK{Style.RESET_ALL}")
     write_csv(results, filename)
-    echo(f'A summary report has been written to: {filename}')
+    logger.info(f"{len(results)} branches scanned - summary report written to '{filename}'")
 
 
 def main():
@@ -565,6 +583,7 @@ def main():
     """
     args = get_parser().parse_args()
     configure_logging(args.log)
+    handler = add_stream_handler()
 
     try:
         client = get_client()
@@ -578,12 +597,13 @@ def main():
         else:
             matched_items = matched_repos
 
+        remove_stream_handler(handler)
         results = execute_scans(matched_items, not args.no_progress, username, args.branches)
+        add_stream_handler(stream_handler=handler)
         check_results(results)
 
     except Exception as exception:
         logger.error(exception)
-        print(f'Error: {exception}')
         sys.exit(-1)
 
 

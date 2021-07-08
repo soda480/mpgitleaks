@@ -41,7 +41,7 @@ optional arguments:
   --include INCLUDE  a regex to match name of repos to include in scanning
   --noprogress       do not display progress bar for each process - display log messages instead
   --log              log messages to a log file
-  --branches         set process affinity at repo branch level
+  --branches         set process affinity at repo branch level (experimental)
 ```
 
 ## Execution
@@ -70,9 +70,9 @@ soda480/mpgitleaks:latest \
 
 ### Examples
 
-Get repos from a file named `repos.txt` but exclude the specified repos and display progress bar:
+Get repos from a file named `repos.txt` but exclude the specified repos:
 ```bash
-mpgitleaks --file 'repos.txt' --exclude 'soda480/mplogp' --progress
+mpgitleaks --file 'repos.txt' --exclude 'soda480/mplogp'
 ```
 ![example](https://raw.githubusercontent.com/soda480/mpgitleaks/master/docs/images/example1.gif)
 

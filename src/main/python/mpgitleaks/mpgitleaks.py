@@ -23,6 +23,23 @@ HOME = '/opt/mpgitleaks'
 MAX_PROCESSES = 35
 
 
+class ColoredFormatter(logging.Formatter):
+    """  colored formatter
+    """
+    level_format = {
+        logging.DEBUG: Style.DIM + "%(levelname)s" + Style.RESET_ALL,
+        logging.INFO: Style.DIM + "%(levelname)s" + Style.RESET_ALL,
+        logging.WARNING: Style.BRIGHT + Fore.YELLOW + "%(levelname)s" + Style.RESET_ALL,
+        logging.ERROR: Style.BRIGHT + Fore.RED + "%(levelname)s" + Style.RESET_ALL,
+        logging.CRITICAL: Style.BRIGHT + Fore.RED + "%(levelname)s" + Style.RESET_ALL,
+    }
+
+    def format(self, record):
+        level_format = self.level_format.get(record.levelno)
+        formatter = logging.Formatter("[" + level_format + "] %(message)s")
+        return formatter.format(record)
+
+
 def get_parser():
     """ return argument parser
     """
@@ -79,6 +96,16 @@ def get_parser():
     return parser
 
 
+def log_message(message, info=False):
+    """ log message
+        mitigate lazy formatting
+    """
+    if info:
+        logger.info(message)
+    else:
+        logger.debug(message)
+
+
 def configure_logging(create):
     """ configure logging and create logfile if specified
     """
@@ -97,9 +124,10 @@ def add_stream_handler(stream_handler=None):
     """ add stream handler to logging
     """
     root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
     if not stream_handler:
         stream_handler = logging.StreamHandler()
-        stream_formatter = logging.Formatter("[" + Style.DIM + "%(levelname)s" + Style.RESET_ALL + "] %(message)s")
+        stream_formatter = ColoredFormatter()
         stream_handler.setFormatter(stream_formatter)
         stream_handler.setLevel(logging.INFO)
     root_logger.addHandler(stream_handler)
@@ -135,13 +163,13 @@ def execute_command(command, items_to_redact=None, **kwargs):
     """
     command_split = command.split(' ')
     redacted_command = redact(command, items_to_redact)
-    logger.debug(f'executing command: {redacted_command}')
+    log_message(f'executing command: {redacted_command}')
     process = subprocess.run(command_split, capture_output=True, text=True, **kwargs)
-    logger.debug(f"executed command: '{redacted_command}' returncode: {process.returncode}")
+    log_message(f"executed command: '{redacted_command}' returncode: {process.returncode}")
     if process.stdout:
-        logger.debug(f'stdout:\n{process.stdout}')
+        log_message(f'stdout:\n{process.stdout}')
     if process.stderr:
-        logger.debug(f'stderr:\n{process.stderr}')
+        log_message(f'stderr:\n{process.stderr}')
     return process.returncode
 
 
@@ -208,10 +236,10 @@ def scan_repo(process_data, shared_data):
 
     client = get_client()
     branches = client.get(f'/repos/{repo_full_name}/branches', _get='all', _attributes=['name'])
-    logger.debug(f'executing {len(branches) * 2 + 2} commands to scan repo {repo_full_name}')
+    log_message(f'executing {len(branches) * 2 + 2} commands to scan repo {repo_full_name}')
 
-    logger.debug(f'scanning item {repo_full_name}')
-    logger.debug('executed command: setup')
+    log_message(f'scanning item {repo_full_name}')
+    log_message('executed command: setup')
 
     dirs = create_dirs()
     clone_dir = f"{dirs['clones']}/{repo_name}"
@@ -225,14 +253,14 @@ def scan_repo(process_data, shared_data):
         branch_name = branch['name']
         branch_full_name = f"{repo_full_name}@{branch_name}"
         safe_branch_full_name = branch_full_name.replace('/', '|')
-        logger.debug(f'scanning branch {branch_full_name}')
+        log_message(f'scanning branch {branch_full_name}')
         execute_command(f'git checkout -b {branch_name} origin/{branch_name}', cwd=clone_dir)
         report = f"{dirs['reports']}/{safe_branch_full_name}.json"
         exit_code = execute_command(f'gitleaks --path=. --branch={branch_name} --report={report} --threads=10', cwd=clone_dir)
         results.append(get_scan_result(branch_full_name, exit_code, report))
-        logger.debug(f'scanning of branch {branch_full_name} complete')
+        log_message(f'scanning of branch {branch_full_name} complete')
 
-    logger.debug(f'scanning of repo {repo_full_name} complete')
+    log_message(f'scanning of repo {repo_full_name} complete')
     return results
 
 
@@ -247,8 +275,8 @@ def scan_branch(process_data, shared_data):
     safe_branch_full_name = branch_full_name.replace('/', '|')
     bearer_token = os.getenv('GH_TOKEN_PSW')
 
-    logger.debug(f'scanning item {branch_full_name}')
-    logger.debug(f'executing 2 commands to scan branch {branch_full_name}')
+    log_message(f'scanning item {branch_full_name}')
+    log_message(f'executing 2 commands to scan branch {branch_full_name}')
 
     dirs = create_dirs()
     # clone repo branch
@@ -261,7 +289,7 @@ def scan_branch(process_data, shared_data):
     report = f"{dirs['reports']}/{safe_branch_full_name}.json"
     exit_code = execute_command(f'gitleaks --path=. --branch={branch_name} --report={report} --threads=10', cwd=clone_dir)
     result = get_scan_result(branch_full_name, exit_code, report)
-    logger.debug(f'scanning of branch {branch_full_name} complete')
+    log_message(f'scanning of branch {branch_full_name} complete')
     return [result]
 
 
@@ -280,16 +308,16 @@ def scan_repo_queue(process_data, shared_data):
         try:
             repo = repo_queue.get(timeout=6)
             # reset progress bar for next repo
-            logger.debug('RESET')
+            log_message('RESET')
 
             repo_clone_url = repo['clone_url']
             repo_full_name = repo['full_name']
             safe_repo_full_name = repo_full_name.replace('/', '|')
 
-            logger.debug(f'scanning item [{str(repo_count).zfill(zfill)}] {repo_full_name}')
+            log_message(f'scanning item [{str(repo_count).zfill(zfill)}] {repo_full_name}')
 
             branches = client.get(f'/repos/{repo_full_name}/branches', _get='all', _attributes=['name'])
-            logger.debug(f'executing {len(branches) * 2 + 1} commands to scan repo {repo_full_name}')
+            log_message(f'executing {len(branches) * 2 + 1} commands to scan repo {repo_full_name}')
 
             clone_dir = f"{dirs['clones']}/{safe_repo_full_name}"
             shutil.rmtree(clone_dir, ignore_errors=True)
@@ -300,21 +328,21 @@ def scan_repo_queue(process_data, shared_data):
                 branch_name = branch['name']
                 branch_full_name = f"{repo_full_name}@{branch_name}"
                 safe_branch_full_name = branch_full_name.replace('/', '|')
-                logger.debug(f'scanning branch {branch_full_name}')
+                log_message(f'scanning branch {branch_full_name}')
                 execute_command(f'git checkout -b {branch_name} origin/{branch_name}', cwd=clone_dir)
                 report = f"{dirs['reports']}/{safe_branch_full_name}.json"
                 exit_code = execute_command(f'gitleaks --path=. --branch={branch_name} --report={report} --threads=10', cwd=clone_dir)
                 results.append(get_scan_result(branch_full_name, exit_code, report))
-                logger.debug(f'scanning of branch {branch_full_name} complete')
+                log_message(f'scanning of branch {branch_full_name} complete')
 
-            logger.debug(f'scanning of repo {repo_full_name} complete')
+            log_message(f'scanning of repo {repo_full_name} complete')
             repo_count += 1
-            logger.debug(f'scanning item [{str(repo_count).zfill(zfill)}]')
+            log_message(f'scanning item [{str(repo_count).zfill(zfill)}]')
 
         except Empty:
-            logger.debug('repo queue is empty')
+            log_message('repo queue is empty')
             break
-    logger.debug(f'scanning complete - scanned {str(repo_count).zfill(zfill)} repos')
+    log_message(f'scanning complete - scanned {str(repo_count).zfill(zfill)} repos')
     return results
 
 
@@ -333,7 +361,7 @@ def scan_branch_queue(process_data, shared_data):
         try:
             branch = branch_queue.get(timeout=6)
             # reset progress bar for next item
-            logger.debug('RESET')
+            log_message('RESET')
 
             repo_clone_url = branch['clone_url']
             repo_full_name = branch['full_name']
@@ -341,8 +369,8 @@ def scan_branch_queue(process_data, shared_data):
             branch_full_name = f"{repo_full_name}@{branch_name}"
             safe_branch_full_name = branch_full_name.replace('/', '|')
 
-            logger.debug(f'scanning item [{str(branch_count).zfill(zfill)}] {branch_full_name}')
-            logger.debug(f'executing 2 commands to scan branch {branch_full_name}')
+            log_message(f'scanning item [{str(branch_count).zfill(zfill)}] {branch_full_name}')
+            log_message(f'executing 2 commands to scan branch {branch_full_name}')
 
             clone_dir = f"{dirs['clones']}/{safe_branch_full_name}"
             shutil.rmtree(clone_dir, ignore_errors=True)
@@ -354,14 +382,14 @@ def scan_branch_queue(process_data, shared_data):
             result = get_scan_result(branch_full_name, exit_code, report)
             results.append(result)
 
-            logger.debug(f'scanning of branch {branch_full_name} is complete')
+            log_message(f'scanning of branch {branch_full_name} is complete')
             branch_count += 1
-            logger.debug(f'scanning item [{str(branch_count).zfill(zfill)}]')
+            log_message(f'scanning item [{str(branch_count).zfill(zfill)}]')
 
         except Empty:
-            logger.debug('repo branch queue is empty')
+            log_message('repo branch queue is empty')
             break
-    logger.debug(f'scanning complete - scanned {str(branch_count).zfill(zfill)} branches')
+    log_message(f'scanning complete - scanned {str(branch_count).zfill(zfill)} branches')
     return results
 
 
@@ -396,14 +424,9 @@ def get_arguments_for_queued_execution(items, branches):
     function = scan_repo_queue
     if branches:
         function = scan_branch_queue
-    config = {
-        'id_regex': r'^scanning item (?P<value>.*)$',
-        'text_regex': r'scanning|executing'
-    }
     process_data = get_process_data_queue(items)
     arguments['function'] = function
     arguments['process_data'] = process_data
-    arguments['config'] = config
     return arguments
 
 
@@ -415,13 +438,8 @@ def get_arguments_for_execution(items, branches):
     if branches:
         function = scan_branch
     process_data = items
-    config = {
-        'id_regex': r'^scanning item (?P<value>.*)$',
-        'text_regex': r'scanning|executing'
-    }
     arguments['function'] = function
     arguments['process_data'] = process_data
-    arguments['config'] = config
     return arguments
 
 
@@ -438,6 +456,10 @@ def execute_scans(items, progress, username, branches):
 
     arguments['shared_data'] = {
         'username': username
+    }
+    arguments['config'] = {
+        'id_regex': r'^scanning item (?P<value>.*)$',
+        'text_regex': r'scanning|executing'
     }
 
     if progress:
@@ -461,31 +483,31 @@ def get_authenticated_user(client):
 def get_file_repos(filename):
     """ return repos read from filename
     """
-    logger.info(f"retrieving repos from file '{filename}'")
+    log_message(f"retrieving repos from file '{filename}'", info=True)
     if not os.access(filename, os.R_OK):
         raise ValueError(f"repos file '{filename}' cannot be read")
     with open(filename) as infile:
         clone_urls = [line.strip() for line in infile.readlines()]
     repos = get_repo_data(clone_urls)
-    logger.info(f"{len(repos)} repos were retrieved from file '{filename}'")
+    log_message(f"{len(repos)} repos were retrieved from file '{filename}'", info=True)
     return repos
 
 
 def get_user_repos(client, username):
     """ return repos for authenticated user
     """
-    logger.info(f"retrieving repos from authenticated user '{username}'")
+    log_message(f"retrieving repos from authenticated user '{username}'", info=True)
     repos = client.get('/user/repos', _get='all', _attributes=['full_name', 'clone_url'])
-    logger.info(f"{len(repos)} repos were retrieved from authenticated user '{username}'")
+    log_message(f"{len(repos)} repos were retrieved from authenticated user '{username}'", info=True)
     return repos
 
 
 def get_org_repos(client, org):
     """ return repos for organization
     """
-    logger.info(f"retrieving repos from organization '{org}'")
+    log_message(f"retrieving repos from organization '{org}'", info=True)
     repos = client.get(f'/orgs/{org}/repos', _get='all', _attributes=['full_name', 'clone_url'])
-    logger.info(f"{len(repos)} repos were retrieved from organization '{org}'")
+    log_message(f"{len(repos)} repos were retrieved from organization '{org}'", info=True)
     return repos
 
 
@@ -504,7 +526,7 @@ def get_repos(client, filename, user, org, username):
 def get_branches(client, repos):
     """ returl list of branches for repos
     """
-    logger.info(f"retrieving branches for {len(repos)} repos")
+    log_message(f"retrieving branches for {len(repos)} repos", info=True)
     branches = []
     for repo in repos:
         repo_full_name = repo['full_name']
@@ -515,7 +537,7 @@ def get_branches(client, repos):
             item['branch_name'] = branch['name']
             item['full_name'] = repo_full_name
             branches.append(item)
-    logger.info(f"{len(branches)} branches were retrieved from {len(repos)} repos")
+    log_message(f"{len(branches)} branches were retrieved from {len(repos)} repos", info=True)
     return branches
 
 
@@ -534,13 +556,13 @@ def match_criteria(name, include, exclude):
 def get_matched(items, include, exclude, item_type):
     """ return matched items using include and exclude regex
     """
-    logger.debug(f'filtering {item_type} using include {include} and exclude {exclude} criteria')
+    log_message(f'filtering {item_type} using include {include} and exclude {exclude} criteria')
     matched = []
     for item in items:
         match_include, match_exclude = match_criteria(item['full_name'], include, exclude)
         if match_include and not match_exclude:
             matched.append(item)
-    logger.info(f"after applying inclusion/exclusion filters - {len(matched)} {item_type} remain")
+    log_message(f"{len(matched)} {item_type} remain after applying inclusion/exclusion filters", info=True)
     return matched
 
 
@@ -568,13 +590,13 @@ def check_results(results):
     name = os.path.basename(sys.argv[0])
     filename = f'{name}.csv'
     if any(result['leaks'] for result in results):
-        logger.debug('gitleaks DID detect hardcoded secrets')
+        log_message('gitleaks DID detect hardcoded secrets')
         print(f"{Style.BRIGHT + Fore.RED}GITLEAKS SCAN NOT OK - SECRETS DETECTED{Style.RESET_ALL}")
     else:
-        logger.debug('gitleaks DID NOT detect hardcoded secrets')
+        log_message('gitleaks DID NOT detect hardcoded secrets')
         print(f"{Style.BRIGHT + Fore.GREEN}GITLEAKS SCAN OK{Style.RESET_ALL}")
     write_csv(results, filename)
-    logger.info(f"{len(results)} branches scanned - summary report written to '{filename}'")
+    log_message(f"{len(results)} branches scanned - summary report written to '{filename}'", info=True)
 
 
 def main():
@@ -582,7 +604,7 @@ def main():
     """
     args = get_parser().parse_args()
     configure_logging(args.log)
-    handler = add_stream_handler()
+    stream_handler = add_stream_handler()
 
     try:
         client = get_client()
@@ -596,12 +618,13 @@ def main():
         else:
             matched_items = matched_repos
 
-        remove_stream_handler(handler)
+        remove_stream_handler(stream_handler)
         results = execute_scans(matched_items, not args.no_progress, username, args.branches)
-        add_stream_handler(stream_handler=handler)
+        add_stream_handler(stream_handler=stream_handler)
         check_results(results)
 
     except Exception as exception:
+        add_stream_handler(stream_handler=stream_handler)
         logger.error(exception)
         sys.exit(-1)
 

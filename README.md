@@ -25,11 +25,12 @@ The motivation behind writing this script was:
 * the Docker container must run with a bind mount to the working directory in order to access logs/reports
   * the repos will be cloned to the `./scans/clones` folder in the working directory
   * the reports will be written to the `./scans/reports/` folder in the working directory
+  * a summary report will be written to `mpgitleaks.csv`
 
 
 ## Usage
 ```bash
-usage: mpgitleaks [-h] [--file FILENAME] [--user] [--org ORG] [--exclude EXCLUDE] [--include INCLUDE] [--noprogress] [--log] [--branches]
+usage: mpgitleaks [-h] [--file FILENAME] [--user] [--org ORG] [--exclude EXCLUDE] [--include INCLUDE] [--log]
 
 A Python script that wraps the gitleaks tool to enable scanning of multiple repositories in parallel
 
@@ -40,9 +41,7 @@ optional arguments:
   --org ORG          process repos for the specified organization
   --exclude EXCLUDE  a regex to match name of repos to exclude from scanning
   --include INCLUDE  a regex to match name of repos to include in scanning
-  --noprogress       do not display progress bar for each process - display log messages instead
   --log              log messages to a log file
-  --branches         set process affinity at repo branch level (experimental)
 ```
 
 ## Execution
@@ -71,18 +70,18 @@ soda480/mpgitleaks:latest \
 
 ### Examples
 
-Get repos from a file named `repos.txt` but exclude the specified repos:
+Scan all repos contained in the file `repos.txt` but exclude the repos that match the specified regex:
 ```bash
 mpgitleaks --file 'repos.txt' --exclude 'soda480/mplogp'
 ```
 ![example](https://raw.githubusercontent.com/soda480/mpgitleaks/master/docs/images/example1.gif)
 
-Get all repos for the authenticated user but exclude the specified repos:
+Scan all repos for the authenticated user but exclude the repos that match the specified regex:
 ```bash
 mpgitleaks --user --exclude 'intel|edgexfoundry|soda480/openhack'
 ```
 
-Get alls repos for the specified organization and include only the specified repos:
+Scan all repos in the specified organization but only include the repos that match the specified regex:
 ```bash
 mpgitleaks --org 'myorg' --include '.*-go'
 ```

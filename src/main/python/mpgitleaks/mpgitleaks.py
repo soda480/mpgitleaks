@@ -131,12 +131,23 @@ def remove_stream_handler(stream_handler):
     root_logger.removeHandler(stream_handler)
 
 
+def get_credentials():
+    """ return tuple of username, password from environment
+    """
+    username = os.getenv('USERNAME')
+    if not username:
+        raise ValueError('USERNAME environment variable must be set')
+    password = os.getenv('PASSWORD')
+    if not password:
+        raise ValueError('PASSWORD environment variable must be set')
+    return username, password
+
+
 def get_client():
     """ return instance of GitHubAPI client
     """
-    if not os.getenv('GH_TOKEN_PSW'):
-        raise ValueError('GH_TOKEN_PSW environment variable must be set to token')
-    return GitHubAPI.get_client()
+    _, password = get_credentials()
+    return GitHubAPI(bearer_token=password)
 
 
 def redact(str_to_redact, items_to_redact):
@@ -155,12 +166,12 @@ def execute_command(command, items_to_redact=None, **kwargs):
     redacted_command = redact(command, items_to_redact)
     log_message(f'executing command: {redacted_command}')
     process = subprocess.run(command_split, capture_output=True, text=True, **kwargs)
-    log_message(f"executed command: '{redacted_command}' returncode: {process.returncode}")
+    log_message(f"executed command: {redacted_command}' returncode: {process.returncode}")
     if process.stdout:
         log_message(f'stdout:\n{process.stdout}')
     if process.stderr:
         log_message(f'stderr:\n{process.stderr}')
-    return process.returncode
+    return process
 
 
 def get_repo_data(clone_urls):
@@ -216,53 +227,69 @@ def get_scan_result(branch_name, exit_code, report):
     return result
 
 
-def scan_repo(process_data, shared_data):
+def get_branches(clone_dir):
+    """ return list of branches from clone_dir
+        clone_dir should be a git repository
+    """
+    logger.debug(f'getting branches from: {clone_dir}')
+    process = execute_command('git branch -a', cwd=clone_dir)
+    if process.returncode != 0:
+        raise Exception('unable to get branches')
+    branches = []
+    stdout_lines = process.stdout.strip().split('\n')
+    for line in stdout_lines:
+        regex = '^.*origin/(?P<name>.*)$'
+        match = re.match(regex, line)
+        if match:
+            branch_name = match.group('name')
+            if branch_name not in branches:
+                branches.append(branch_name)
+    return branches
+
+
+def scan_repo(process_data, *args):
     """ execute gitleaks scan on all branches of repo
     """
     repo_clone_url = process_data['clone_url']
     repo_full_name = process_data['full_name']
-    username = shared_data['username']
     repo_name = repo_full_name.replace('/', '|')
 
-    client = get_client()
-    branches = client.get(f'/repos/{repo_full_name}/branches', _get='all', _attributes=['name'])
-    log_message(f'executing {len(branches) * 2 + 2} commands to scan repo {repo_full_name}')
+    username, password = get_credentials()
 
     log_message(f'scanning item {repo_full_name}')
-    # added to make progress bar look better upon startup
-    log_message('executed command: setup')
 
     dirs = create_dirs()
     clone_dir = f"{dirs['clones']}/{repo_name}"
     shutil.rmtree(clone_dir, ignore_errors=True)
-    repo_clone_url = repo_clone_url.replace('https://', f'https://{username}:{client.bearer_token}@')
+    repo_clone_url = repo_clone_url.replace('https://', f'https://{username}:{password}@')
+    execute_command(f'git clone {repo_clone_url} {repo_name}', items_to_redact=[password], cwd=dirs['clones'])
 
-    execute_command(f'git clone {repo_clone_url} {repo_name}', items_to_redact=[client.bearer_token], cwd=dirs['clones'])
+    branches = get_branches(clone_dir)
+    logger.debug(branches)
+    log_message(f'executing {len(branches) * 2} commands to scan repo {repo_full_name}')
 
     results = []
-    for branch in branches:
-        branch_name = branch['name']
+    for branch_name in branches:
         branch_full_name = f"{repo_full_name}@{branch_name}"
         safe_branch_full_name = branch_full_name.replace('/', '|')
         log_message(f'scanning branch {branch_full_name}')
         execute_command(f'git checkout -b {branch_name} origin/{branch_name}', cwd=clone_dir)
         report = f"{dirs['reports']}/{safe_branch_full_name}.json"
-        exit_code = execute_command(f'gitleaks --path=. --branch={branch_name} --report={report} --threads=10', cwd=clone_dir)
-        results.append(get_scan_result(branch_full_name, exit_code, report))
+        process = execute_command(f'gitleaks --path=. --branch={branch_name} --report={report} --threads=10', cwd=clone_dir)
+        results.append(get_scan_result(branch_full_name, process.returncode, report))
         log_message(f'scanning of branch {branch_full_name} complete')
 
     log_message(f'scanning of repo {repo_full_name} complete')
     return results
 
 
-def scan_repo_queue(process_data, shared_data):
+def scan_repo_queue(process_data, *args):
     """ execute gitleaks scan on all branches of repo pulled from queue
     """
     repo_queue = process_data['item_queue']
     queue_size = process_data['queue_size']
-    username = shared_data['username']
+    username, password = get_credentials()
     dirs = create_dirs()
-    client = get_client()
     zfill = len(str(queue_size))
     results = []
     repo_count = 0
@@ -278,23 +305,22 @@ def scan_repo_queue(process_data, shared_data):
 
             log_message(f'scanning item [{str(repo_count).zfill(zfill)}] {repo_full_name}')
 
-            branches = client.get(f'/repos/{repo_full_name}/branches', _get='all', _attributes=['name'])
-            log_message(f'executing {len(branches) * 2 + 1} commands to scan repo {repo_full_name}')
-
             clone_dir = f"{dirs['clones']}/{safe_repo_full_name}"
             shutil.rmtree(clone_dir, ignore_errors=True)
-            repo_clone_url = repo_clone_url.replace('https://', f'https://{username}:{client.bearer_token}@')
-            execute_command(f'git clone {repo_clone_url} {safe_repo_full_name}', items_to_redact=[client.bearer_token], cwd=dirs['clones'])
+            repo_clone_url = repo_clone_url.replace('https://', f'https://{username}:{password}@')
+            execute_command(f'git clone {repo_clone_url} {safe_repo_full_name}', items_to_redact=[password], cwd=dirs['clones'])
 
-            for branch in branches:
-                branch_name = branch['name']
+            branches = get_branches(clone_dir)
+            log_message(f'executing {len(branches) * 2} commands to scan repo {repo_full_name}')
+
+            for branch_name in branches:
                 branch_full_name = f"{repo_full_name}@{branch_name}"
                 safe_branch_full_name = branch_full_name.replace('/', '|')
                 log_message(f'scanning branch {branch_full_name}')
                 execute_command(f'git checkout -b {branch_name} origin/{branch_name}', cwd=clone_dir)
                 report = f"{dirs['reports']}/{safe_branch_full_name}.json"
-                exit_code = execute_command(f'gitleaks --path=. --branch={branch_name} --report={report} --threads=10', cwd=clone_dir)
-                results.append(get_scan_result(branch_full_name, exit_code, report))
+                process = execute_command(f'gitleaks --path=. --branch={branch_name} --report={report} --threads=10', cwd=clone_dir)
+                results.append(get_scan_result(branch_full_name, process.returncode, report))
                 log_message(f'scanning of branch {branch_full_name} complete')
 
             log_message(f'scanning of repo {repo_full_name} complete')
@@ -332,7 +358,7 @@ def get_process_data_queue(items):
     return process_data
 
 
-def execute_scans(items, username):
+def execute_scans(items):
     """ execute scans for repoos using multiprocessing
     """
     if not items:
@@ -346,12 +372,8 @@ def execute_scans(items, username):
         arguments['function'] = scan_repo_queue
         arguments['process_data'] = get_process_data_queue(items)
 
-    arguments['shared_data'] = {
-        'username': username
-    }
     arguments['config'] = {
         'id_regex': r'^scanning item (?P<value>.*)$',
-        'text_regex': r'scanning|executing',
         'progress_bar': {
             'total': r'^executing (?P<value>\d+) commands to scan .*$',
             'count_regex': r'^executed command: (?P<value>.*)$',
@@ -382,31 +404,34 @@ def get_file_repos(filename):
     return repos
 
 
-def get_user_repos(client, username):
+def get_user_repos():
     """ return repos for authenticated user
     """
+    client = get_client()
+    username = get_authenticated_user(client)
     log_message(f"retrieving repos from authenticated user '{username}'", info=True)
     repos = client.get('/user/repos?affiliation=owner,collaborator', _get='all', _attributes=['full_name', 'clone_url'])
     log_message(f"{len(repos)} repos were retrieved from authenticated user '{username}'", info=True)
     return repos
 
 
-def get_org_repos(client, org):
+def get_org_repos(org):
     """ return repos for organization
     """
+    client = get_client()
     log_message(f"retrieving repos from organization '{org}'", info=True)
     repos = client.get(f'/orgs/{org}/repos', _get='all', _attributes=['full_name', 'clone_url'])
     log_message(f"{len(repos)} repos were retrieved from organization '{org}'", info=True)
     return repos
 
 
-def get_repos(client, filename, user, org, username):
+def get_repos(filename, user, org):
     """ get repos for filename, user or org
     """
     if user:
-        repos = get_user_repos(client, username)
+        repos = get_user_repos()
     elif org:
-        repos = get_org_repos(client, org)
+        repos = get_org_repos(org)
     else:
         repos = get_file_repos(filename)
     return repos
@@ -478,12 +503,11 @@ def main():
     stream_handler = add_stream_handler()
 
     try:
-        client = get_client()
-        username = get_authenticated_user(client)
-        repos = get_repos(client, args.filename, args.user, args.org, username)
+        get_credentials()
+        repos = get_repos(args.filename, args.user, args.org)
         matched_repos = match_items(repos, args.include, args.exclude, 'repos')
         remove_stream_handler(stream_handler)
-        results = execute_scans(matched_repos, username)
+        results = execute_scans(matched_repos)
         add_stream_handler(stream_handler=stream_handler)
         check_results(results)
 

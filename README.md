@@ -1,8 +1,7 @@
-
 # mpgitleaks
 [![build](https://github.com/soda480/mpgitleaks/actions/workflows/main.yml/badge.svg)](https://github.com/soda480/mpgitleaks/actions/workflows/main.yml)
 [![Code Grade](https://www.code-inspector.com/project/24885/status/svg)](https://frontend.code-inspector.com/project/24885/dashboard)
-[![complexity](https://img.shields.io/badge/complexity-Simple:%204-brightgreen)](https://radon.readthedocs.io/en/latest/api.html#module-radon.complexity)
+[![complexity](https://img.shields.io/badge/complexity-Simple:%205-brightgreen)](https://radon.readthedocs.io/en/latest/api.html#module-radon.complexity)
 [![vulnerabilities](https://img.shields.io/badge/vulnerabilities-None-brightgreen)](https://pypi.org/project/bandit/)
 [![python](https://img.shields.io/badge/python-3.9-teal)](https://www.python.org/downloads/)
 
@@ -15,7 +14,7 @@ The motivation behind writing this script was:
 
 **Notes**:
 * the script uses https to clone the repos
-  * you must set the `GH_TOKEN_PSW` to a 'personal access token' that has access to the repos being scanned
+  * you must set the `USERNAME` and `PASSWORD` environment variables - this credential needs to have access to the repos being scanned
   * if using `--file` then https clone urls must be supplied in the file
 * the maximum number of background processes (workers) that will be started is `35`
   * if the number of repos to process is less than the maximum number of workers
@@ -48,8 +47,13 @@ optional arguments:
 
 Set the required environment variables:
 ```bash
-export GH_BASE_URL=api.github.com
-export GH_TOKEN_PSW=--your-token--
+export USERNAME='--username--'
+export PASSWORD='--password-or-token--'
+```
+
+If using `--user` or `--org` options and GitHub instance is not `api.github.com`:
+```bash
+export GH_BASE_URL='--api-address-to-github-instance--'
 ```
 
 Execute the Docker container:
@@ -60,7 +64,8 @@ docker container run \
 -e http_proxy \
 -e https_proxy \
 -e GH_BASE_URL \
--e GH_TOKEN_PSW \
+-e USERNAME \
+-e PASSWORD \
 -v $PWD:/opt/mpgitleaks \
 soda480/mpgitleaks:latest \
 [MPGITLEAKS OPTIONS]
@@ -70,7 +75,7 @@ soda480/mpgitleaks:latest \
 
 ### Examples
 
-Scan all repos contained in the file `repos.txt` but exclude the repos that match the specified regex:
+Scan all repos contained in the file `repos.txt` but exclude the repos that match the specified regex, an example of a `repos.txt` can be found [here](https://raw.githubusercontent.com/soda480/mpgitleaks/master/examples/repos.txt):
 ```bash
 mpgitleaks --file 'repos.txt' --exclude 'soda480/mplogp'
 ```

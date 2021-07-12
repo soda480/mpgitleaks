@@ -30,18 +30,18 @@ The motivation behind writing this script was:
 
 ## Usage
 ```bash
-usage: mpgitleaks [-h] [--file FILENAME] [--user] [--org ORG] [--exclude EXCLUDE] [--include INCLUDE] [--log]
+usage: mpgitleaks [-h] [--file FILENAME] [--user] [--org ORG] [--exclude EXCLUDE] [--include INCLUDE] [--debug]
 
 A Python script that wraps the gitleaks tool to enable scanning of multiple repositories in parallel
 
 optional arguments:
   -h, --help         show this help message and exit
-  --file FILENAME    process repos contained in the specified file
-  --user             process repos for the authenticated user
-  --org ORG          process repos for the specified organization
+  --file FILENAME    scan repos contained in the specified file
+  --user             scan repos for the authenticated GitHub user where user is owner or collaborator
+  --org ORG          scan repos for the specified GitHub organization
   --exclude EXCLUDE  a regex to match name of repos to exclude from scanning
   --include INCLUDE  a regex to match name of repos to include in scanning
-  --log              log messages to a log file
+  --debug            log debug messages to a log file
 ```
 
 ## Execution

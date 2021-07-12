@@ -51,19 +51,19 @@ def get_parser():
         type=str,
         default='repos.txt',
         required=False,
-        help='process repos contained in the specified file')
+        help='scan repos contained in the specified file')
     parser.add_argument(
         '--user',
         dest='user',
         action='store_true',
-        help='process repos for the authenticated user')
+        help='scan repos for the authenticated GitHub user where user is owner or collaborator')
     parser.add_argument(
         '--org',
         dest='org',
         type=str,
         default=None,
         required=False,
-        help='process repos for the specified organization')
+        help='scan repos for the specified GitHub organization')
     parser.add_argument(
         '--exclude',
         dest='exclude',
@@ -79,10 +79,10 @@ def get_parser():
         required=False,
         help='a regex to match name of repos to include in scanning')
     parser.add_argument(
-        '--log',
-        dest='log',
+        '--debug',
+        dest='debug',
         action='store_true',
-        help='log messages to a log file')
+        help='log debug messages to a log file')
     return parser
 
 
@@ -332,38 +332,19 @@ def get_process_data_queue(items):
     return process_data
 
 
-def get_arguments_for_queued_execution(items):
-    """ return mp4ansi arguments for queued execution
-    """
-    arguments = {}
-    function = scan_repo_queue
-    process_data = get_process_data_queue(items)
-    arguments['function'] = function
-    arguments['process_data'] = process_data
-    return arguments
-
-
-def get_arguments_for_execution(items):
-    """ return mp4ansi arguments for non queued execution
-    """
-    arguments = {}
-    function = scan_repo
-    process_data = items
-    arguments['function'] = function
-    arguments['process_data'] = process_data
-    return arguments
-
-
 def execute_scans(items, username):
     """ execute scans for repoos using multiprocessing
     """
     if not items:
         raise ValueError('no reopos to scan')
 
+    arguments = {}
     if len(items) <= MAX_PROCESSES:
-        arguments = get_arguments_for_execution(items)
+        arguments['function'] = scan_repo
+        arguments['process_data'] = items
     else:
-        arguments = get_arguments_for_queued_execution(items)
+        arguments['function'] = scan_repo_queue
+        arguments['process_data'] = get_process_data_queue(items)
 
     arguments['shared_data'] = {
         'username': username
@@ -405,7 +386,7 @@ def get_user_repos(client, username):
     """ return repos for authenticated user
     """
     log_message(f"retrieving repos from authenticated user '{username}'", info=True)
-    repos = client.get('/user/repos', _get='all', _attributes=['full_name', 'clone_url'])
+    repos = client.get('/user/repos?affiliation=owner,collaborator', _get='all', _attributes=['full_name', 'clone_url'])
     log_message(f"{len(repos)} repos were retrieved from authenticated user '{username}'", info=True)
     return repos
 
@@ -493,7 +474,7 @@ def main():
     """ main function
     """
     args = get_parser().parse_args()
-    configure_logging(args.log)
+    configure_logging(args.debug)
     stream_handler = add_stream_handler()
 
     try:

@@ -147,7 +147,7 @@ def get_client():
     """ return instance of GitHubAPI client
     """
     _, password = get_credentials()
-    return GitHubAPI(bearer_token=password)
+    return GitHubAPI(bearer_token=password, hostname=os.getenv('GH_BASE_URL'))
 
 
 def redact(str_to_redact, items_to_redact):

@@ -112,12 +112,12 @@ docker container run \
 -it \
 -e http_proxy \
 -e https_proxy \
--v $PWD:/mpgitleaks \
+-v $PWD:/code \
 mpgitleaks:latest \
 /bin/bash
 ```
 
 Build application:
 ```bash
-pyb -X --no-venvs
+pyb -X
 ```

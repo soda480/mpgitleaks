@@ -5,7 +5,6 @@ from pybuilder.core import Author
 
 use_plugin('python.core')
 use_plugin('python.unittest')
-use_plugin('python.install_dependencies')
 use_plugin('python.flake8')
 use_plugin('python.coverage')
 use_plugin('python.distutils')
@@ -24,8 +23,7 @@ default_task = [
     'publish',
     'radon',
     'bandit',
-    'anybadge',
-    'package']
+    'anybadge']
 license = 'Apache License, Version 2.0'
 description = summary
 

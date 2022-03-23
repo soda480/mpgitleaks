@@ -16,7 +16,7 @@ name = 'mpgitleaks'
 authors = [Author('Emilio Reyes', 'soda480@gmail.com')]
 summary = 'A Python script that wraps the gitleaks tool to enable scanning of multiple repositories in parallel'
 url = 'https://github.com/soda480/mpgitleaks'
-version = '0.1.8'
+version = '0.1.9'
 default_task = [
     'clean',
     'analyze',
@@ -38,7 +38,7 @@ def set_properties(project):
     project.set_property('flake8_include_test_sources', True)
     project.set_property('flake8_ignore', 'E501, F401')
     project.set_property('coverage_break_build', False)
-    project.build_depends_on_requirements('requirements-build.txt')
+    project.build_depends_on('mock')
     project.depends_on_requirements('requirements.txt')
     project.set_property('distutils_console_scripts', ['mpgitleaks = mpgitleaks.mpgitleaks:main'])
     project.set_property('radon_break_build_average_complexity_threshold', 4)

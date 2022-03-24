@@ -256,7 +256,7 @@ def scan_repo(process_data, *args):
 
     username, password = get_credentials()
 
-    log_message(f'scanning item {repo_full_name}')
+    # log_message(f'scanning item {repo_full_name}')
 
     dirs = create_dirs()
     clone_dir = f"{dirs['clones']}/{repo_name}"
@@ -272,13 +272,14 @@ def scan_repo(process_data, *args):
     for branch_name in branches:
         branch_full_name = f"{repo_full_name}@{branch_name}"
         safe_branch_full_name = branch_full_name.replace('/', '|')
-        log_message(f'scanning branch {branch_full_name}')
+        log_message(f'scanning item {branch_full_name}')
         execute_command(f'git checkout -b {branch_name} origin/{branch_name}', cwd=clone_dir)
         report = f"{dirs['reports']}/{safe_branch_full_name}.json"
-        process = execute_command(f'gitleaks --path=. --branch={branch_name} --report={report} --threads=10', cwd=clone_dir)
+        process = execute_command(f'gitleaks detect -s=. -r={report}', cwd=clone_dir)
         results.append(get_scan_result(branch_full_name, process.returncode, report))
         log_message(f'scanning of branch {branch_full_name} complete')
 
+    execute_command(f"rm -rf {dirs['clones']}/{repo_name}")
     log_message(f'scanning of repo {repo_full_name} complete')
     return results
 
@@ -295,7 +296,7 @@ def scan_repo_queue(process_data, *args):
     repo_count = 0
     while True:
         try:
-            repo = repo_queue.get(timeout=6)
+            repo = repo_queue.get(timeout=3)
             # reset progress bar for next repo
             log_message('RESET')
 
@@ -303,7 +304,7 @@ def scan_repo_queue(process_data, *args):
             repo_full_name = repo['full_name']
             safe_repo_full_name = repo_full_name.replace('/', '|')
 
-            log_message(f'scanning item [{str(repo_count).zfill(zfill)}] {repo_full_name}')
+            # log_message(f'scanning item [{str(repo_count).zfill(zfill)}] {repo_full_name}')
 
             clone_dir = f"{dirs['clones']}/{safe_repo_full_name}"
             shutil.rmtree(clone_dir, ignore_errors=True)
@@ -316,20 +317,23 @@ def scan_repo_queue(process_data, *args):
             for branch_name in branches:
                 branch_full_name = f"{repo_full_name}@{branch_name}"
                 safe_branch_full_name = branch_full_name.replace('/', '|')
-                log_message(f'scanning branch {branch_full_name}')
+                log_message(f'scanning item {branch_full_name}')
                 execute_command(f'git checkout -b {branch_name} origin/{branch_name}', cwd=clone_dir)
                 report = f"{dirs['reports']}/{safe_branch_full_name}.json"
-                process = execute_command(f'gitleaks --path=. --branch={branch_name} --report={report} --threads=10', cwd=clone_dir)
+                process = execute_command(f'gitleaks -s=. --r={report}', cwd=clone_dir)
                 results.append(get_scan_result(branch_full_name, process.returncode, report))
                 log_message(f'scanning of branch {branch_full_name} complete')
 
+            execute_command(f"rm -rf {dirs['clones']}/{safe_repo_full_name}")
             log_message(f'scanning of repo {repo_full_name} complete')
             repo_count += 1
-            log_message(f'scanning item [{str(repo_count).zfill(zfill)}]')
+            # log_message(f'scanning item [{str(repo_count).zfill(zfill)}]')
+            log_message('scanning item ')
 
         except Empty:
             log_message('repo queue is empty')
             break
+
     log_message(f'scanning complete - scanned {str(repo_count).zfill(zfill)} repos')
     return results
 
@@ -480,6 +484,17 @@ def write_csv(data, filename):
         writer.writerows(data)
 
 
+def get_repo_count(results):
+    """ return number of unique repos in result
+    """
+    repo_names = []
+    for result in results:
+        repo_name = result['branch'].split('@')[0]
+        if repo_name not in repo_names:
+            repo_names.append(repo_name)
+    return len(repo_names)
+
+
 def check_results(results):
     """ check results and write summary
     """
@@ -492,7 +507,7 @@ def check_results(results):
         log_message('gitleaks DID NOT detect hardcoded secrets')
         print(f"{Style.BRIGHT + Fore.GREEN}GITLEAKS SCAN OK{Style.RESET_ALL}")
     write_csv(results, filename)
-    log_message(f"{len(results)} branches scanned - summary report written to '{filename}'", info=True)
+    log_message(f"{len(results)} branches  across {get_repo_count(results)} repos were scanned - summary report written to '{filename}'", info=True)
 
 
 def main():
@@ -514,7 +529,7 @@ def main():
     except Exception as exception:
         add_stream_handler(stream_handler=stream_handler)
         logger.error(exception)
-        sys.exit(-1)
+        sys.exit(1)
 
 
 if __name__ == '__main__':

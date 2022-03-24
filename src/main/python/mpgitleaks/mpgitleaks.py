@@ -11,7 +11,7 @@ import subprocess
 from queue import Empty
 from pathlib import Path
 from multiprocessing import Queue
-
+from requests.exceptions import HTTPError
 from colorama import Style
 from colorama import Fore
 from mp4ansi import MP4ansi
@@ -177,13 +177,24 @@ def execute_command(command, items_to_redact=None, **kwargs):
 def get_repo_data(clone_urls):
     """ return list of repo data from clone_urls
     """
+    client = get_client()
     repos = []
     for clone_url in clone_urls:
         owner = clone_url.split('/')[3]
         name = clone_url.split('/')[-1].replace('.git', '')
+        try:
+            repo_name = f'{owner}/{name}'
+            data = client.get(f'/repos/{repo_name}')
+        except HTTPError as http_error:
+            if http_error.response.status_code == 404:
+                logger.warn(f"repo '{repo_name}' was not found and will be skipped")
+                continue
+            else:
+                raise http_error
         item = {
             'clone_url': clone_url,
-            'full_name': f'{owner}/{name}'
+            'full_name': repo_name,
+            'size': data['size']
         }
         repos.append(item)
     return repos
@@ -256,7 +267,7 @@ def scan_repo(process_data, *args):
 
     username, password = get_credentials()
 
-    # log_message(f'scanning item {repo_full_name}')
+    log_message(f'scanning item {repo_full_name}')
 
     dirs = create_dirs()
     clone_dir = f"{dirs['clones']}/{repo_name}"
@@ -304,7 +315,7 @@ def scan_repo_queue(process_data, *args):
             repo_full_name = repo['full_name']
             safe_repo_full_name = repo_full_name.replace('/', '|')
 
-            # log_message(f'scanning item [{str(repo_count).zfill(zfill)}] {repo_full_name}')
+            log_message(f'scanning item [{str(repo_count).zfill(zfill)}] {repo_full_name}')
 
             clone_dir = f"{dirs['clones']}/{safe_repo_full_name}"
             shutil.rmtree(clone_dir, ignore_errors=True)
@@ -404,7 +415,7 @@ def get_file_repos(filename):
     with open(filename) as infile:
         clone_urls = [line.strip() for line in infile.readlines()]
     repos = get_repo_data(clone_urls)
-    log_message(f"{len(repos)} repos were retrieved from file '{filename}'", info=True)
+    log_message(f"{len(repos)} valid repos were retrieved from file '{filename}'", info=True)
     return repos
 
 
@@ -414,7 +425,7 @@ def get_user_repos():
     client = get_client()
     username = get_authenticated_user(client)
     log_message(f"retrieving repos from authenticated user '{username}'", info=True)
-    repos = client.get('/user/repos?affiliation=owner,collaborator', _get='all', _attributes=['full_name', 'clone_url'])
+    repos = client.get('/user/repos?affiliation=owner,collaborator', _get='all', _attributes=['full_name', 'clone_url', 'size'])
     log_message(f"{len(repos)} repos were retrieved from authenticated user '{username}'", info=True)
     return repos
 
@@ -424,7 +435,7 @@ def get_org_repos(org):
     """
     client = get_client()
     log_message(f"retrieving repos from organization '{org}'", info=True)
-    repos = client.get(f'/orgs/{org}/repos', _get='all', _attributes=['full_name', 'clone_url'])
+    repos = client.get(f'/orgs/{org}/repos', _get='all', _attributes=['full_name', 'clone_url', 'size'])
     log_message(f"{len(repos)} repos were retrieved from organization '{org}'", info=True)
     return repos
 
@@ -438,7 +449,15 @@ def get_repos(filename, user, org):
         repos = get_org_repos(org)
     else:
         repos = get_file_repos(filename)
-    return repos
+
+    actual_repos = []
+    for repo in repos:
+        if repo['size'] == 0:
+            logger.warn(f"repo '{repo['full_name']}' is empty and will be skipped")
+            continue
+        actual_repos.append(repo)
+    log_message(f"{len(actual_repos)} repos will be scanned", info=True)
+    return actual_repos
 
 
 def match_criteria(name, include, exclude):

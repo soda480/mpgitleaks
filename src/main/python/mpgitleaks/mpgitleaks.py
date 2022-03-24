@@ -320,7 +320,7 @@ def scan_repo_queue(process_data, *args):
                 log_message(f'scanning item {branch_full_name}')
                 execute_command(f'git checkout -b {branch_name} origin/{branch_name}', cwd=clone_dir)
                 report = f"{dirs['reports']}/{safe_branch_full_name}.json"
-                process = execute_command(f'gitleaks -s=. --r={report}', cwd=clone_dir)
+                process = execute_command(f'gitleaks -s=. -r={report}', cwd=clone_dir)
                 results.append(get_scan_result(branch_full_name, process.returncode, report))
                 log_message(f'scanning of branch {branch_full_name} complete')
 

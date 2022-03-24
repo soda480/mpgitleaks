@@ -320,7 +320,7 @@ def scan_repo_queue(process_data, *args):
                 log_message(f'scanning item {branch_full_name}')
                 execute_command(f'git checkout -b {branch_name} origin/{branch_name}', cwd=clone_dir)
                 report = f"{dirs['reports']}/{safe_branch_full_name}.json"
-                process = execute_command(f'gitleaks -s=. -r={report}', cwd=clone_dir)
+                process = execute_command(f'gitleaks detect -s=. -r={report}', cwd=clone_dir)
                 results.append(get_scan_result(branch_full_name, process.returncode, report))
                 log_message(f'scanning of branch {branch_full_name} complete')
 
@@ -507,7 +507,7 @@ def check_results(results):
         log_message('gitleaks DID NOT detect hardcoded secrets')
         print(f"{Style.BRIGHT + Fore.GREEN}GITLEAKS SCAN OK{Style.RESET_ALL}")
     write_csv(results, filename)
-    log_message(f"{len(results)} branches  across {get_repo_count(results)} repos were scanned - summary report written to '{filename}'", info=True)
+    log_message(f"{len(results)} branches across {get_repo_count(results)} repos were scanned - summary report written to '{filename}'", info=True)
 
 
 def main():

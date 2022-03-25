@@ -174,17 +174,26 @@ def execute_command(command, items_to_redact=None, **kwargs):
     return process
 
 
+def get_repo_name(url):
+    """ get repo name from url
+    """
+    extension = '.git'
+    if url.endswith(extension):
+        url = url[:-len(extension)]
+    owner = url.split('/')[3]
+    name = url.split('/')[-1]
+    return f'{owner}/{name}'
+
+
 def get_repo_data(clone_urls):
     """ return list of repo data from clone_urls
     """
     client = get_client()
     repos = []
     for clone_url in clone_urls:
-        owner = clone_url.split('/')[3]
-        name = clone_url.split('/')[-1].replace('.git', '')
         try:
-            repo_name = f'{owner}/{name}'
-            data = client.get(f'/repos/{repo_name}')
+            repo_name = get_repo_name(clone_url)
+            size = client.get(f'/repos/{repo_name}')['size']
         except HTTPError as http_error:
             if http_error.response.status_code == 404:
                 logger.warn(f"repo '{repo_name}' was not found and will be skipped")
@@ -194,7 +203,7 @@ def get_repo_data(clone_urls):
         item = {
             'clone_url': clone_url,
             'full_name': repo_name,
-            'size': data['size']
+            'size': size
         }
         repos.append(item)
     return repos

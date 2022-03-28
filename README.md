@@ -29,7 +29,7 @@ The motivation behind writing this script was:
 
 ## Usage
 ```bash
-usage: mpgitleaks [-h] [--file FILENAME] [--user] [--org ORG] [--exclude EXCLUDE] [--include INCLUDE] [--debug]
+usage: mpgitleaks [-h] [--file FILENAME] [--user] [--org ORG] [--exclude EXCLUDE] [--include INCLUDE] [--size SIZE] [--log]
 
 A Python script that wraps the gitleaks tool to enable scanning of multiple repositories in parallel
 
@@ -40,7 +40,8 @@ optional arguments:
   --org ORG          scan repos for the specified GitHub organization
   --exclude EXCLUDE  a regex to match name of repos to exclude from scanning
   --include INCLUDE  a regex to match name of repos to include in scanning
-  --debug            log debug messages to a log file
+  --size SIZE        scan repos less than specified size (in KB)
+  --log              log messages to log file
 ```
 
 ## Execution

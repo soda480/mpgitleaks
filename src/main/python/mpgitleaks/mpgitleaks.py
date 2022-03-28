@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 HOME = '/opt/mpgitleaks'
 MAX_PROCESSES = 35
+GH_API = 'api.github.com'
 
 
 class ColoredFormatter(logging.Formatter):
@@ -79,21 +80,18 @@ def get_parser():
         required=False,
         help='a regex to match name of repos to include in scanning')
     parser.add_argument(
-        '--debug',
-        dest='debug',
+        '--size',
+        dest='size',
+        type=int,
+        default=0,
+        required=False,
+        help='scan repos less than specified size (in KB)')
+    parser.add_argument(
+        '--log',
+        dest='log',
         action='store_true',
-        help='log debug messages to a log file')
+        help='log messages to log file')
     return parser
-
-
-def log_message(message, info=False):
-    """ log message
-        mitigate lazy formatting
-    """
-    if info:
-        logger.info(message)
-    else:
-        logger.debug(message)
 
 
 def configure_logging(create):
@@ -147,7 +145,7 @@ def get_client():
     """ return instance of GitHubAPI client
     """
     _, password = get_credentials()
-    return GitHubAPI(bearer_token=password, hostname=os.getenv('GH_BASE_URL'))
+    return GitHubAPI(bearer_token=password, hostname=os.getenv('GH_BASE_URL', GH_API))
 
 
 def redact(str_to_redact, items_to_redact):
@@ -164,49 +162,14 @@ def execute_command(command, items_to_redact=None, **kwargs):
     """
     command_split = command.split(' ')
     redacted_command = redact(command, items_to_redact)
-    log_message(f'executing command: {redacted_command}')
+    logger.debug(f'executing command: {redacted_command}')
     process = subprocess.run(command_split, capture_output=True, text=True, **kwargs)
-    log_message(f"executed command: {redacted_command}' returncode: {process.returncode}")
+    logger.debug(f"executed command: {redacted_command}' returncode: {process.returncode}")
     if process.stdout:
-        log_message(f'stdout:\n{process.stdout}')
+        logger.debug(f'stdout:\n{process.stdout}')
     if process.stderr:
-        log_message(f'stderr:\n{process.stderr}')
+        logger.debug(f'stderr:\n{process.stderr}')
     return process
-
-
-def get_repo_name(url):
-    """ get repo name from url
-    """
-    extension = '.git'
-    if url.endswith(extension):
-        url = url[:-len(extension)]
-    owner = url.split('/')[3]
-    name = url.split('/')[-1]
-    return f'{owner}/{name}'
-
-
-def get_repo_data(clone_urls):
-    """ return list of repo data from clone_urls
-    """
-    client = get_client()
-    repos = []
-    for clone_url in clone_urls:
-        try:
-            repo_name = get_repo_name(clone_url)
-            size = client.get(f'/repos/{repo_name}')['size']
-        except HTTPError as http_error:
-            if http_error.response.status_code == 404:
-                logger.warn(f"repo '{repo_name}' was not found and will be skipped")
-                continue
-            else:
-                raise http_error
-        item = {
-            'clone_url': clone_url,
-            'full_name': repo_name,
-            'size': size
-        }
-        repos.append(item)
-    return repos
 
 
 def create_dirs():
@@ -276,7 +239,7 @@ def scan_repo(process_data, *args):
 
     username, password = get_credentials()
 
-    log_message(f'scanning item {repo_full_name}')
+    logger.debug(f'scanning item {repo_full_name}')
 
     dirs = create_dirs()
     clone_dir = f"{dirs['clones']}/{repo_name}"
@@ -286,21 +249,21 @@ def scan_repo(process_data, *args):
 
     branches = get_branches(clone_dir)
     logger.debug(branches)
-    log_message(f'executing {len(branches) * 2} commands to scan repo {repo_full_name}')
+    logger.debug(f'executing {len(branches) * 2} commands to scan repo {repo_full_name}')
 
     results = []
     for branch_name in branches:
         branch_full_name = f"{repo_full_name}@{branch_name}"
         safe_branch_full_name = branch_full_name.replace('/', '|')
-        log_message(f'scanning item {branch_full_name}')
+        logger.debug(f'scanning item {branch_full_name}')
         execute_command(f'git checkout -b {branch_name} origin/{branch_name}', cwd=clone_dir)
         report = f"{dirs['reports']}/{safe_branch_full_name}.json"
         process = execute_command(f'gitleaks detect -s=. -r={report}', cwd=clone_dir)
         results.append(get_scan_result(branch_full_name, process.returncode, report))
-        log_message(f'scanning of branch {branch_full_name} complete')
+        logger.debug(f'scanning of branch {branch_full_name} complete')
 
     execute_command(f"rm -rf {dirs['clones']}/{repo_name}")
-    log_message(f'scanning of repo {repo_full_name} complete')
+    logger.debug(f'scanning of repo {repo_full_name} complete')
     return results
 
 
@@ -318,13 +281,13 @@ def scan_repo_queue(process_data, *args):
         try:
             repo = repo_queue.get(timeout=3)
             # reset progress bar for next repo
-            log_message('RESET')
+            logger.debug('RESET')
 
             repo_clone_url = repo['clone_url']
             repo_full_name = repo['full_name']
             safe_repo_full_name = repo_full_name.replace('/', '|')
 
-            log_message(f'scanning item [{str(repo_count).zfill(zfill)}] {repo_full_name}')
+            logger.debug(f'scanning item [{str(repo_count).zfill(zfill)}] {repo_full_name}')
 
             clone_dir = f"{dirs['clones']}/{safe_repo_full_name}"
             shutil.rmtree(clone_dir, ignore_errors=True)
@@ -332,29 +295,29 @@ def scan_repo_queue(process_data, *args):
             execute_command(f'git clone {repo_clone_url} {safe_repo_full_name}', items_to_redact=[password], cwd=dirs['clones'])
 
             branches = get_branches(clone_dir)
-            log_message(f'executing {len(branches) * 2} commands to scan repo {repo_full_name}')
+            logger.debug(f'executing {len(branches) * 2} commands to scan repo {repo_full_name}')
 
             for branch_name in branches:
                 branch_full_name = f"{repo_full_name}@{branch_name}"
                 safe_branch_full_name = branch_full_name.replace('/', '|')
-                log_message(f'scanning item {branch_full_name}')
+                logger.debug(f'scanning item {branch_full_name}')
                 execute_command(f'git checkout -b {branch_name} origin/{branch_name}', cwd=clone_dir)
                 report = f"{dirs['reports']}/{safe_branch_full_name}.json"
                 process = execute_command(f'gitleaks detect -s=. -r={report}', cwd=clone_dir)
                 results.append(get_scan_result(branch_full_name, process.returncode, report))
-                log_message(f'scanning of branch {branch_full_name} complete')
+                logger.debug(f'scanning of branch {branch_full_name} complete')
 
             execute_command(f"rm -rf {dirs['clones']}/{safe_repo_full_name}")
-            log_message(f'scanning of repo {repo_full_name} complete')
+            logger.debug(f'scanning of repo {repo_full_name} complete')
             repo_count += 1
-            # log_message(f'scanning item [{str(repo_count).zfill(zfill)}]')
-            log_message('scanning item ')
+            # logger.debug(f'scanning item [{str(repo_count).zfill(zfill)}]')
+            logger.debug('scanning item ')
 
         except Empty:
-            log_message('repo queue is empty')
+            logger.debug('repo queue is empty')
             break
 
-    log_message(f'scanning complete - scanned {str(repo_count).zfill(zfill)} repos')
+    logger.debug(f'scanning complete - scanned {str(repo_count).zfill(zfill)} repos')
     return results
 
 
@@ -415,58 +378,110 @@ def get_authenticated_user(client):
     return client.get('/user')['login']
 
 
-def get_file_repos(filename):
+def get_repo_name(url):
+    """ get repo name from url
+    """
+    extension = '.git'
+    if url.endswith(extension):
+        url = url[:-len(extension)]
+    owner = url.split('/')[3]
+    name = url.split('/')[-1]
+    return f'{owner}/{name}'
+
+
+def get_repo_data(client, clone_urls):
+    """ return list of repo data from clone_urls
+    """
+    repos = []
+    for clone_url in clone_urls:
+        try:
+            repo_name = get_repo_name(clone_url)
+            repo = client.get(f'/repos/{repo_name}')
+        except HTTPError as http_error:
+            if http_error.response.status_code == 404:
+                logger.warn(f"repo '{repo_name}' was not found and will be skipped")
+                continue
+            else:
+                raise http_error
+        repos.append({
+            'clone_url': clone_url,
+            'full_name': repo_name,
+            'size': repo['size'],
+            'archived': repo['archived'],
+            'disabled': repo['disabled']
+        })
+    return repos
+
+
+def get_file_repos(client, filename):
     """ return repos read from filename
     """
-    log_message(f"retrieving repos from file '{filename}'", info=True)
+    logger.info(f"retrieving repos from file '{filename}'")
     if not os.access(filename, os.R_OK):
         raise ValueError(f"repos file '{filename}' cannot be read")
     with open(filename) as infile:
         clone_urls = [line.strip() for line in infile.readlines()]
-    repos = get_repo_data(clone_urls)
-    log_message(f"{len(repos)} valid repos were retrieved from file '{filename}'", info=True)
+    repos = get_repo_data(client, clone_urls)
+    logger.info(f"{len(repos)} valid repos were retrieved from file '{filename}'")
     return repos
 
 
-def get_user_repos():
+def get_user_repos(client):
     """ return repos for authenticated user
     """
-    client = get_client()
     username = get_authenticated_user(client)
-    log_message(f"retrieving repos from authenticated user '{username}'", info=True)
-    repos = client.get('/user/repos?affiliation=owner,collaborator', _get='all', _attributes=['full_name', 'clone_url', 'size'])
-    log_message(f"{len(repos)} repos were retrieved from authenticated user '{username}'", info=True)
+    logger.info(f"retrieving repos from authenticated user '{username}'")
+    repos = client.get('/user/repos?affiliation=owner,collaborator', _get='all', _attributes=['full_name', 'clone_url', 'size', 'archived', 'disabled'])
+    logger.info(f"{len(repos)} repos were retrieved from authenticated user '{username}'")
     return repos
 
 
-def get_org_repos(org):
+def get_org_repos(client, org):
     """ return repos for organization
     """
-    client = get_client()
-    log_message(f"retrieving repos from organization '{org}'", info=True)
-    repos = client.get(f'/orgs/{org}/repos', _get='all', _attributes=['full_name', 'clone_url', 'size'])
-    log_message(f"{len(repos)} repos were retrieved from organization '{org}'", info=True)
+    logger.info(f"retrieving repos from organization '{org}'")
+    repos = client.get(f'/orgs/{org}/repos', _get='all', _attributes=['full_name', 'clone_url', 'size', 'archived', 'disabled'])
+    logger.info(f"{len(repos)} repos were retrieved from organization '{org}'")
     return repos
 
 
-def get_repos(filename, user, org):
-    """ get repos for filename, user or org
+def get_repos_to_scan(repos, size):
+    """ return tuple of repos to scan and repos to skip
     """
-    if user:
-        repos = get_user_repos()
-    elif org:
-        repos = get_org_repos(org)
-    else:
-        repos = get_file_repos(filename)
-
-    actual_repos = []
+    repos_to_scan = []
+    repos_to_skip = []
     for repo in repos:
         if repo['size'] == 0:
             logger.warn(f"repo '{repo['full_name']}' is empty and will be skipped")
-            continue
-        actual_repos.append(repo)
-    log_message(f"{len(actual_repos)} repos will be scanned", info=True)
-    return actual_repos
+            repos_to_skip.append({'full_name': repo['full_name'], 'reason': 'repo is empty'})
+        elif repo['archived']:
+            logger.warn(f"repo '{repo['full_name']}' is archived and will be skipped")
+            repos_to_skip.append({'full_name': repo['full_name'], 'reason': 'repo is archived'})
+        elif repo['disabled']:
+            logger.warn(f"repo '{repo['full_name']}' is disabled and will be skipped")
+            repos_to_skip.append({'full_name': repo['full_name'], 'reason': 'repo is disabled'})
+        elif size and repo['size'] >= size:
+            logger.warn(f"repo '{repo['full_name']}' size {repo['size']} is larger than the allowed size {size} and will be skipped")
+            repos_to_skip.append({'full_name': repo['full_name'], 'reason': f"repo size {repo['size']} is larger than the allowed size {size}"})
+        else:
+            repos_to_scan.append(repo)
+    return repos_to_scan, repos_to_skip
+
+
+def get_repos(filename, user, org, size):
+    """ get repos for filename, user or org
+    """
+    client = get_client()
+    if user:
+        repos = get_user_repos(client)
+    elif org:
+        repos = get_org_repos(client, org)
+    else:
+        repos = get_file_repos(client, filename)
+    repos_to_scan, repos_to_skip = get_repos_to_scan(repos, size)
+    logger.info(f"{len(repos_to_scan)} repos will be scanned")
+    logger.info(f"{len(repos_to_skip)} repos will be skipped")
+    return repos_to_scan, repos_to_skip
 
 
 def match_criteria(name, include, exclude):
@@ -484,13 +499,13 @@ def match_criteria(name, include, exclude):
 def get_matched(items, include, exclude, item_type):
     """ return matched items using include and exclude regex
     """
-    log_message(f"filtering {item_type} using include '{include}' and exclude '{exclude}' criteria")
+    logger.debug(f"filtering {item_type} using include '{include}' and exclude '{exclude}' criteria")
     matched = []
     for item in items:
         match_include, match_exclude = match_criteria(item['full_name'], include, exclude)
         if match_include and not match_exclude:
             matched.append(item)
-    log_message(f"{len(matched)} {item_type} remain after applying inclusion/exclusion filters", info=True)
+    logger.info(f"{len(matched)} {item_type} remain after applying inclusion/exclusion filters")
     return matched
 
 
@@ -529,25 +544,25 @@ def check_results(results):
     name = os.path.basename(sys.argv[0])
     filename = f'{name}.csv'
     if any(result['leaks'] for result in results):
-        log_message('gitleaks DID detect hardcoded secrets')
+        logger.debug('gitleaks DID detect hardcoded secrets')
         print(f"{Style.BRIGHT + Fore.RED}GITLEAKS SCAN NOT OK - SECRETS DETECTED{Style.RESET_ALL}")
     else:
-        log_message('gitleaks DID NOT detect hardcoded secrets')
+        logger.debug('gitleaks DID NOT detect hardcoded secrets')
         print(f"{Style.BRIGHT + Fore.GREEN}GITLEAKS SCAN OK{Style.RESET_ALL}")
     write_csv(results, filename)
-    log_message(f"{len(results)} branches across {get_repo_count(results)} repos were scanned - summary report written to '{filename}'", info=True)
+    logger.info(f"{len(results)} branches across {get_repo_count(results)} repos were scanned - summary report written to '{filename}'")
 
 
 def main():
     """ main function
     """
     args = get_parser().parse_args()
-    configure_logging(args.debug)
+    configure_logging(args.log)
     stream_handler = add_stream_handler()
 
     try:
-        get_credentials()
-        repos = get_repos(args.filename, args.user, args.org)
+        repos, repos_to_skip = get_repos(args.filename, args.user, args.org, args.size)
+        write_csv(repos_to_skip, 'mpgitleaks-skip.csv')
         matched_repos = match_items(repos, args.include, args.exclude, 'repos')
         remove_stream_handler(stream_handler)
         results = execute_scans(matched_repos)

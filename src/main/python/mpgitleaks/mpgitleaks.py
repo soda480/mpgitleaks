@@ -14,7 +14,7 @@ from multiprocessing import Queue
 from requests.exceptions import HTTPError
 from colorama import Style
 from colorama import Fore
-from mp4ansi import MP4ansi
+from mppbar import MPpbar
 from github3api import GitHubAPI
 
 logger = logging.getLogger(__name__)
@@ -280,14 +280,11 @@ def scan_repo_queue(process_data, *args):
     while True:
         try:
             repo = repo_queue.get(timeout=3)
-            # reset progress bar for next repo
-            logger.debug('RESET')
 
             repo_clone_url = repo['clone_url']
             repo_full_name = repo['full_name']
             safe_repo_full_name = repo_full_name.replace('/', '|')
-
-            logger.debug(f'scanning item [{str(repo_count).zfill(zfill)}] {repo_full_name}')
+            logger.debug(f'scanning item {repo_full_name}')
 
             clone_dir = f"{dirs['clones']}/{safe_repo_full_name}"
             shutil.rmtree(clone_dir, ignore_errors=True)
@@ -310,23 +307,24 @@ def scan_repo_queue(process_data, *args):
             execute_command(f"rm -rf {dirs['clones']}/{safe_repo_full_name}")
             logger.debug(f'scanning of repo {repo_full_name} complete')
             repo_count += 1
-            # logger.debug(f'scanning item [{str(repo_count).zfill(zfill)}]')
-            logger.debug('scanning item ')
+            # reset progress bar for next repo
+            logger.debug('reset-mppbar')
 
         except Empty:
             logger.debug('repo queue is empty')
+            logger.debug('reset-mppbar-complete')
             break
 
     logger.debug(f'scanning complete - scanned {str(repo_count).zfill(zfill)} repos')
     return results
 
 
-def get_results(process_data):
+def get_results(result_data):
     """ return results from process data
     """
     results = []
-    for process in process_data:
-        results.extend(process['result'])
+    for result in result_data:
+        results.extend(result)
     return results
 
 
@@ -351,25 +349,18 @@ def execute_scans(items):
     if not items:
         raise ValueError('no reopos to scan')
 
-    arguments = {}
-    if len(items) <= MAX_PROCESSES:
-        arguments['function'] = scan_repo
-        arguments['process_data'] = items
-    else:
-        arguments['function'] = scan_repo_queue
-        arguments['process_data'] = get_process_data_queue(items)
-
-    arguments['config'] = {
-        'id_regex': r'^scanning item (?P<value>.*)$',
-        'progress_bar': {
-            'total': r'^executing (?P<value>\d+) commands to scan .*$',
-            'count_regex': r'^executed command: (?P<value>.*)$',
-            'max_digits': 2
-        }
+    regex = {
+        'alias': r'^scanning item (?P<value>.*)$',
+        'total': r'^executing (?P<value>\d+) commands to scan .*$',
+        'count': r'^executed command: (?P<value>.*)$'
     }
-    mp4ansi = MP4ansi(**arguments)
-    mp4ansi.execute(raise_if_error=True)
-    return get_results(mp4ansi.process_data)
+    if len(items) <= MAX_PROCESSES:
+        pbars = MPpbar(function=scan_repo, process_data=items, regex=regex)
+    else:
+        pbars = MPpbar(function=scan_repo_queue, process_data=get_process_data_queue(items), regex=regex)
+
+    results = pbars.execute(raise_if_error=True)
+    return get_results(results)
 
 
 def get_authenticated_user(client):
